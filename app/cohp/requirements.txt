@@ -1,0 +1,6 @@
+numpy
+dash
+plotly
+pandas
+pymatgen
+flask
