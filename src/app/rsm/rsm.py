@@ -1,7 +1,7 @@
 from dash import Dash, html, dcc, Input, Output, State, callback
 import numpy as np
 import flask
-from app.rsm.convexhull import generate_data, visualize_convex_hull
+from rsm.convexhull import generate_data, visualize_convex_hull
 
 def create_rsm_app(requests_pathname_prefix: str) -> Dash:
     # Phases of interest

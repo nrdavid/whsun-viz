@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 
 class TBModel(object):
     def __init__(self, directory, orbs_orth = False,min_hopping_dist=None,min_overlap_dist=None,num_each_dir = np.array([3,3,3])):
-        self.directory = "app/cohp/" + directory
+        self.directory = "cohp/" + directory
         self.read_input()
         self.orbs_orth = orbs_orth
         if min_hopping_dist == None:

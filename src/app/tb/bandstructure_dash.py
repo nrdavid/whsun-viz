@@ -1,6 +1,6 @@
 
 import numpy as np
-from app.tb.nonorthTB import TBModel
+from tb.nonorthTB import TBModel
 import copy
 import plotly.graph_objects as go
 
@@ -756,7 +756,7 @@ def create_tb_app(requests_pathname_prefix):
     k_labelSi = [r'L',"\u0393",r'X',r'W',r'K',"\u0393"]
 
     #required input
-    wanDirect = "app/tb/silicon_interact"
+    wanDirect = "tb/silicon_interact"
     wanTag = "wannier90"
     numWanSi = 8
     #initialize the widget
