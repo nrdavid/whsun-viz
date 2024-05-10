@@ -2,13 +2,15 @@ from typing import Union
 import uvicorn
 from fastapi.middleware.wsgi import WSGIMiddleware
 from fastapi import FastAPI
-from app.rsm.rsm import create_rsm_app
-from app.tb.bandstructure_dash import create_tb_app
-from app.tb.bandstructure_dash import Widget
-from app.cohp.TBmodel import COHPDashApp
+from rsm.rsm import create_rsm_app
+from tb.bandstructure_dash import create_tb_app
+from tb.bandstructure_dash import Widget
+from cohp.TBmodel import COHPDashApp
 import flask
 from dash import Dash
 import os
+
+print(os.getcwd())
 
 app = FastAPI()
 
