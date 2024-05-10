@@ -10,8 +10,6 @@ import flask
 from dash import Dash
 import os
 
-print(os.getcwd())
-
 app = FastAPI()
 
 @app.get("/")
