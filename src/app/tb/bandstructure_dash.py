@@ -556,7 +556,12 @@ class Widget(Bandstructure):
         bonds = [["", 0,0,'',0]]
 
         # Layout of the app with subplot
-        app.layout = html.Div([html.H1("Bonds behind Bandstructure", style={'margin': '15px', 'text-align': 'center', 'font-size': '48px','height':80}),
+        app.layout = html.Div([
+            html.Div([
+                html.H1("Bonds behind Bandstructure", style={'margin': '15px', 'text-align': 'center', 'font-size': '48px','height':60}),
+                    html.P(["1.  Click point on bandstructure and observe populated tables.",html.Br(),"2.  Click row on important bonds table to plot its bond run and energy.",
+                            html.Br(),"3.  Edit TB parameters in 'Modified TB' column: click, edit, enter, than hit 'Calculate new' button."], 
+                            style={"marginLeft": '530px', 'text-align': 'left', 'font-size': '20px','height':80})]),
             html.Div([
                 html.Div(
                     dcc.Graph(
