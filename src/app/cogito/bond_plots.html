@@ -22,13 +22,17 @@
         #sidebar {
             width: 20%;
             background-color: #f0f0f0;
-            border-right: 1px solid #ccc;
-            overflow-y: auto;
+            border-right: 1px solid #ccc;            
+            display: flex;
+            flex-direction: column;
+
         }
 
         /* Material list styling */
         #materialList {
             list-style-type: none;
+            overflow-y: auto;
+            flex-grow: 1;
         }
 
         #materialList li {
@@ -44,6 +48,25 @@
         #materialList li.selected {
             background-color: #b0c4de;
             color: #fff;
+        }
+
+        /* Credit section styling */
+        #credit {
+            padding: 10px;
+            font-size: 12px;
+            text-align: center;
+            background-color: #e8e8e8;
+            border-top: 1px solid #ccc;
+            flex-shrink: 0;
+        }
+
+        #credit a {
+            color: #0073e6;
+            text-decoration: none;
+        }
+
+        #credit a:hover {
+            text-decoration: underline;
         }
 
         /* Right content area styling */
@@ -74,6 +97,10 @@
 	    <li data-file="Lu4Cr4O12/bond_cohp_plot.html">LuCrO<sub>3</sub></li>
             <li data-file="Na4Ta4O12/bond_cohp_plot.html">NaTaO<sub>3</sub></li>
 	</ul>
+        <div id="credit">
+            COGITO and visualizations are created by Emily Oliphant (olipemil@umich.edu) in the Kioupakis Group (kioup@umich.edu) and Sun Group (whsun@umich.edu) at the University of Michgian <br> <br>
+            Learn more about <a href="https://olipemil.github.io/cogito-website/" target="_blank">COGITO</a>
+        </div>
     </div>
 
     <!-- Right Content Area -->
