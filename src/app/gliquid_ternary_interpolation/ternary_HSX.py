@@ -12,7 +12,7 @@ from pymatgen.entries.computed_entries import ComputedStructureEntry
 import plotly.express as px
 import plotly.graph_objects as go
 import time
-from gliquid_ternary_interpolation.extensive_hull_main import gliq_lowerhull3, gen_hyperplane_eqns
+from gliquid_ternary_interpolation.extensive_hull_main import gliq_lowerhull3, gen_hyperplane_eqns2
 from scipy.spatial import Delaunay
 from gliquid_ternary_interpolation.auth import key as MAPI_KEY
 
@@ -55,6 +55,62 @@ def ternary_to_cartesian(x_A, x_B):
     x = x_A + 0.5 * x_B
     y = np.sqrt(3) / 2 * x_B
     return x, y
+
+def point_to_surface_height(new_point, liquid_points, triangulation, triangles):
+    # Convert the new point into its Cartesian equivalent (if ternary conversion is required)
+    new_point_cartesian = ternary_to_cartesian(new_point[0], new_point[1])
+
+    # if new_point_cartesian[0] == 0.0 or new_point_cartesian[1] == 0.0:
+    #     return 0, np.array([0.0, 0.0, 0.0])
+    
+    # Find the simplex (triangle) that contains the new point's projection
+    simplex = triangulation.find_simplex(new_point_cartesian[:2])
+    
+    if simplex == -1:
+        raise ValueError("The new point is outside the triangulated surface.")
+
+    # Get the vertices of the triangle containing the new point
+    vertices = triangles[simplex]
+    
+    # Extract the coordinates of the vertices
+    v0 = liquid_points[vertices[0]]
+    v1 = liquid_points[vertices[1]]
+    v2 = liquid_points[vertices[2]]
+    
+    def find_z_on_triangle(x, y, vertex1, vertex2, vertex3):    
+        # Unpack the vertices
+        x1, y1, z1 = vertex1
+        x2, y2, z2 = vertex2
+        x3, y3, z3 = vertex3
+
+        # Create two edge vectors from vertex1
+        v1 = np.array([x2 - x1, y2 - y1, z2 - z1])
+        v2 = np.array([x3 - x1, y3 - y1, z3 - z1])
+
+        # Compute the normal vector to the plane using cross product
+        normal = np.cross(v1, v2)
+        A, B, C = normal
+        D = -A * x1 - B * y1 - C * z1
+
+        if np.isclose(C, 0):
+            raise ValueError("The triangle is degenerate or vertical in the xy-plane.")
+
+        # Plane equation: A(x - x1) + B(y - y1) + C(z - z1) = 0
+        # Solving for z:
+        z = (-D - A * x - B * y) / C
+        
+        return z
+    
+    interpolated_z = find_z_on_triangle(new_point_cartesian[0], new_point_cartesian[1], v0, v1, v2)
+
+    int_point = new_point.copy()
+    int_point[2] = interpolated_z
+
+    vertical_height = new_point[2] - interpolated_z
+
+    
+    return vertical_height, int_point
+
 
 class ternary_interpolation:
     def __init__(self, tern_sys: List[str], dir: str, interp_type: str, delta = 0.025):
@@ -132,7 +188,7 @@ class ternary_interpolation:
         H_A, H_B, H_C = self.ref_data['H']
         S_A, S_B, S_C = self.ref_data['S']
 
-        df_fitted = pd.read_excel(os.path.join(self.dir, 'fitted_system_data.xlsx'))
+        df_fitted = pd.read_excel(os.path.join(self.dir, 'fitted_system_data_new.xlsx'))
         # df_fitted = pd.read_excel(os.path.join(self.dir, 'composite_fit_results-trimmed+carbides.xlsx'))
         df_predicted = pd.read_excel(os.path.join(self.dir, 'predicted_params_final.xlsx'))
         self.bin_df = self.retrieve_system_parameters(2, df_fitted, df_predicted)
@@ -318,7 +374,7 @@ class ternary_hsx_plotter(ternary_interpolation):
         start_time = time.time()
         self.points = np.array(self.hsx_df[['x0', 'x1', 'S', 'H']])
         self.simplices = gliq_lowerhull3(self.points, vertical_simplices=True)
-        self.temps = gen_hyperplane_eqns(points = self.points, lower_hull = self.simplices, partial_indices = [2])[1]
+        self.temps = gen_hyperplane_eqns2(points = self.points, lower_hull = self.simplices, partial_indices = [2])[1]
         nan_indices = []
         for i in range(len(self.temps)):
             if str(self.temps[i]) == 'nan' or str(self.temps[i]) == 'inf' or str(self.temps[i]) == '-inf':
@@ -377,7 +433,6 @@ class ternary_hsx_plotter(ternary_interpolation):
         self.equil_liq_df = self.equil_liq_df.sort_values('t').drop_duplicates(subset=['x0', 'x1'], keep='first')
         self.equil_df = pd.concat([self.equil_solid_df, self.equil_liq_df])        
         
-
     def plot_ternary(self):
         fig = go.Figure()
 
@@ -389,7 +444,22 @@ class ternary_hsx_plotter(ternary_interpolation):
 
         # fig.add_trace(scatter)
 
+        solid_points = np.array(list(zip(self.equil_solid_df['x0'], self.equil_solid_df['x1'], self.equil_solid_df['t'])))
         liq_points = np.array(list(zip(self.equil_liq_df['x0'], self.equil_liq_df['x1'], self.equil_liq_df['t'])))
+        cart_liq_points = [ternary_to_cartesian(point[0], point[1]) for point in liq_points]
+        triangulation = Delaunay(cart_liq_points)
+        triangles = triangulation.simplices
+        try:
+            for point in solid_points:
+                height = point_to_surface_height(point, liq_points, triangulation, triangles)[0]
+                if height > 0:
+                    new_row = {'x0': point[0], 'x1': point[1], 't': point[2] + 3, 'label': 'L', 'color': 'cornflowerblue'}
+                    new_row_df = pd.DataFrame([new_row])
+                    self.equil_liq_df = pd.concat([self.equil_liq_df, new_row_df])
+        except Exception as e:
+            print('Solid meshing error:', e)
+
+        liq_points = np.array(list(zip(self.equil_liq_df['x0'], self.equil_liq_df['x1'], self.equil_liq_df['t'])))     
         cart_liq_points = [ternary_to_cartesian(point[0], point[1]) for point in liq_points]
         triangulation = Delaunay(cart_liq_points)
         triangles = triangulation.simplices
@@ -447,7 +517,7 @@ class ternary_hsx_plotter(ternary_interpolation):
 
         fig.update_layout(
             legend=dict(
-                x=0.8, y=0.9, xanchor='left', yanchor='top'    
+                x=0.95, y=0.95, xanchor='left', yanchor='top'    
             ),
             autosize = True,
             margin = dict(l = 50, r = 50, b = 50, t = 50),
@@ -469,21 +539,10 @@ class ternary_hsx_plotter(ternary_interpolation):
                 zaxis_visible=True,
                 bgcolor='white',
                 camera=dict(
-                    projection=dict(type='orthographic'), 
-                    # eye=dict(x=1.5, y=1.5, z=1.5)         
+                    projection=dict(type='orthographic'),         
                 )
             )
         )
 
         return fig
 
-
-if __name__ == '__main__':
-    tern_sys = ['Bi', 'Cd', 'Sn']
-    dir = "gliquid_ternary_interpolation/matrix_data_jsons/"
-
-    plotter = ternary_hsx_plotter(tern_sys, dir, 'linear', delta=0.025, temp_slider=[0, 0])
-
-    plotter.interpolate()
-    plotter.process_data()
-    plotter.plot_ternary().show()
