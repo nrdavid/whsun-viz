@@ -465,6 +465,86 @@ def gen_hyperplane_eqns(points, lower_hull = [], direct_vertices = False, multip
     return all_hyperplane_eqns, all_partial_derivatives
 
 
+def gen_hyperplane_eqns2(points, lower_hull=[], direct_vertices=False, multiplier=1, partial_indices=[0], evaluate_eqns=False, evaluate_partials=True):
+    dim = points.shape[1]
+
+    if direct_vertices:
+        all_vertices = np.array([points])
+    else:
+        all_vertices = [points[simplex] for simplex in lower_hull]
+        all_vertices = np.array(all_vertices)
+
+    x = np.array([smp.Symbol(f'x{i}') for i in range(dim)]).T
+
+    A = np.array([[smp.Symbol(f'a{j}{i}') for j in range(dim)] for i in range(dim - 1)]).T
+    c = np.array([smp.Symbol(f'c{i}') for i in range(dim)]).T
+
+    M = np.hstack((A, x[:, np.newaxis]))
+    final_M = smp.Matrix(M)
+    sym_normal_vec = smp.det(final_M).simplify()
+
+    normal_vec = np.array([sym_normal_vec.coeff(f'x{i}') for i in range(dim)])
+    intercept = -np.dot(normal_vec, c)
+    hyperplane_eqn = smp.Add(sym_normal_vec, intercept)
+    solution_form = smp.solve(hyperplane_eqn, f'x{dim-1}')
+
+    partial_formulae = [smp.diff(solution_form[0], f'x{i}') for i in range(dim - 1)]
+    partial_formulae = [partial_formulae[i] for i in partial_indices]
+
+    x_list = list(x)
+    hyperplane_eqn = smp.collect(hyperplane_eqn, x_list)
+    remaining_expr = hyperplane_eqn
+
+    coefficients = [hyperplane_eqn.coeff(xi) for xi in x_list]
+    for xi in x_list:
+        remaining_expr -= hyperplane_eqn.coeff(xi) * xi
+
+    hyperplane_coeffs = coefficients + [remaining_expr]
+
+    hyperplane_eqn_dict = {}
+    if os.path.exists('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json'):
+        with open('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json', 'r') as f:
+            hyperplane_eqn_dict = json.load(f)
+
+    partial_derivatives_dict = {}
+    if os.path.exists('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json'):
+        with open('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json', 'r') as f:
+            partial_derivatives_dict = json.load(f)
+
+    all_hyperplane_eqns = []
+    all_partial_derivatives = []
+
+    for vertices in all_vertices:
+        vector_list = [vertices[i + 1] - vertices[0] for i in range(dim - 1)]
+        vector_list = [vector.round(5) for vector in vector_list]
+
+        matrix = np.column_stack(vector_list)
+
+        var_ele = [str(var) for var in A.flatten()]
+        mat_ele = matrix.flatten()
+        var_dict = {var: val for var, val in zip(var_ele, mat_ele)}
+
+        coord_dict = {str(key): val for key, val in zip(c, vertices[0])}
+        var_dict.update(coord_dict)
+
+        if evaluate_eqns:
+            eqn = eval(hyperplane_eqn_dict[str(dim)], {"math": math, "__builtins__": {}}, var_dict)
+            all_hyperplane_eqns.append(eqn)
+
+        if evaluate_partials:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                partial_dict = partial_derivatives_dict.get(str(dim), {})
+                partials = []
+                for i in partial_indices:
+                    partial = partial_dict.get(str(i), "0")
+                    part = eval(partial, {"math": math, "__builtins__": {}}, var_dict)
+                    part = part * multiplier
+                    partials.append(part)
+                if partials:
+                    all_partial_derivatives.append(partials[0])
+
+    return all_hyperplane_eqns, all_partial_derivatives
 
 
 def gliq_lowerhull(points, liq_points, intermetallics):

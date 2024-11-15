@@ -221,13 +221,9 @@ def get_MPDS_data(components, pd_ind=0, dtype='all'):
     sys_dir = f"{data_dir}/{sys}"
     if not os.path.exists(sys_dir):
         os.makedirs(sys_dir)
-    ## print current working directory
-    print(os.getcwd())
-    print(os.listdir())
-    print(sys_dir)
+
     sys_file = os.path.join(f"{data_dir}/{sys}", f"{sys}_MPDS_PD_{pd_ind}.json")
     if os.path.exists(sys_file):
-        print("True")
         # get MPDS data from stored jsons in liquidus curves folder
         print("\nloading JSON from cache...")
         with open(sys_file, 'r') as f:
@@ -304,7 +300,7 @@ def get_MPDS_data(components, pd_ind=0, dtype='all'):
 
             url = endpoint + '?' + urlencode(
                 {
-                    'q': json.dumps({'entry': dia_json['entry']}),
+                    # 'q': json.dumps({'entry': dia_json['entry']}),
                     'pagesize': 10,
                     'dtype': 1
                 })
@@ -364,7 +360,7 @@ def get_MPDS_data(components, pd_ind=0, dtype='all'):
                 break
             with open(sys_file, "w") as f:
                 get_ref_data(dia_json)
-                json.dump(dia_json, f)
+                # json.dump(dia_json, f)
             file_ind += 1
 
         # return pd data at index specified, or return nothing if 'None' specified

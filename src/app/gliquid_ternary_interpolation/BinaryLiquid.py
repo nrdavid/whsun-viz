@@ -694,7 +694,7 @@ class BinaryLiquid:
         fname = f"{self.sys_name}_FITTED_MP_GGA.svg"
         if results_dir:
             fname = f"{results_dir}/{fname}"
-        pio.write_image(fig=fig, file=fname)
+        # pio.write_image(fig=fig, file=fname)
 
 
 
