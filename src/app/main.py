@@ -11,6 +11,7 @@ from cohp.TBmodel import COHPDashApp
 import flask
 from dash import Dash
 import os
+from gliquid_ternary_interpolation.interactive_ternary_plotter import create_gliqtern_app
 
 app = FastAPI()
 
@@ -29,15 +30,22 @@ def read_item(item_id: int, q: Union[str, None] = None):
 def redirect_to_gliq_im():
     return RedirectResponse(url="/gliquid/interactive_matrix.html")
 
+@app.get("/cogito")
+def redirect_to_test_web():
+    return RedirectResponse(url="/cogito/bond_plots.html")
 
 dash_app_rsm = create_rsm_app(requests_pathname_prefix="/rsm/")
 dash_app_tb = create_tb_app(requests_pathname_prefix="/tb/")
 dash_app_cohp = COHPDashApp().create_cohp_dashapp(requests_pathname_prefix="/cogito-cohp/")
 
+dash_app_gliqtern = create_gliqtern_app(requests_pathname_prefix="/gliquid_ternary_interpolation/")
+
 app.mount("/gliquid/", StaticFiles(directory="gliquid"))
+app.mount("/cogito/", StaticFiles(directory="cogito"))
 app.mount("/rsm", WSGIMiddleware(dash_app_rsm.server))
 app.mount("/tb", WSGIMiddleware(dash_app_tb.server))
 app.mount("/cogito-cohp", WSGIMiddleware(dash_app_cohp.server))
+app.mount("/gliquid_ternary_interpolation", WSGIMiddleware(dash_app_gliqtern.server))
 
 if __name__ == "__main__":
     app.run()
