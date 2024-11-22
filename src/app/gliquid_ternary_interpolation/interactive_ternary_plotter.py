@@ -1,3 +1,10 @@
+'''
+Author: Abrar Rauf & Joshua Willwerth
+
+This script generates a Dash web app for the G-Liquid Ternary Interpolation project.
+The app allows users to input a ternary system and select an interpolation type to generate the interpolated 
+ternary liquidus and corresponding binary phase diagrams. 
+'''
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
@@ -28,11 +35,13 @@ def create_gliqtern_app(requests_pathname_prefix):
         plotter.interpolate()
         plotter.process_data()
 
-        sub_width = 450
-        sub_height = 375
+        sub_width = 400
+        sub_height = 280
+        tern_width = 900
+        tern_height = 1000
         # Generate the plots
         ternary_plot = plotter.plot_ternary()
-        ternary_plot.update_layout(title=f"Interpolated {plotter.tern_sys_name} Ternary Phase Diagram", showlegend=True, width=sub_width + 150, height=sub_height + 50, font=dict(size=10))
+        ternary_plot.update_layout(title=f"Interpolated {plotter.tern_sys_name} Ternary Phase Diagram", showlegend=True, width=tern_width, height=tern_height, font=dict(size=10))
 
         binary_plot_1 = plotter.bin_fig_list[0]
         binary_plot_1.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
@@ -87,42 +96,53 @@ def create_gliqtern_app(requests_pathname_prefix):
                     html.Div(id='loading-message', children="Enter input and click 'Generate Plot' to see the result."),
                     html.Br(),
                     html.P(html.B("By Abrar Rauf (arauf@umich.edu), Joshua Willwerth, Shibo Tan, Wenhao Sun(whsun@umich.edu)"), style={'fontSize': '12px'}),
-                    html.P(html.I("Note: The accuracy of the ternary liquidus reconstruction is a work-in-progress and is not garaunteed to work as intended for all ternary systems."), style={'fontSize': '12px'})
+                    html.P(html.I("Note: The accuracy of the ternary liquidus reconstruction is a work-in-progress and is not guaranteed to work as intended for all ternary systems."), style={'fontSize': '12px'})
                 ],
                 style={
-                    'width': '20%', 'height': '100vh', 'padding': '10px',
+                    'width': '15%', 'height': '100vh', 'padding': '10px',
                     'position': 'fixed', 'left': 0, 'top': 0, 'backgroundColor': '#f8f9fa',
-                    'boxShadow': '2px 0 5px rgba(0,0,0,0.1)', 'overflowY': 'auto'
+                    'boxShadow': '2px 0 5px rgba(0,0,0,0.1)', 'overflowY': 'auto',
+                    'display': 'inline-block',  # Prevent overlap with the right section
+                    'verticalAlign': 'top'
                 }
             ),
 
             # Right side main plot area
             html.Div(
                 [
-                    # Loading spinner
-                    dcc.Loading(
-                        id="loading-icon",
-                        type="circle",
-                        fullscreen=False
-                    ),
-                    
-                    # Grid layout for four separate plotly figures
+                    # Two-column layout: one for binary plots (left) and one for the ternary plot (right)
                     html.Div(
                         [
-                            dcc.Graph(id='ternary-plot', style={'height': '45vh', 'width': '45vh'}),
-                            dcc.Graph(id='binary-plot-1', style={'height': '45vh', 'width': '45vh'}),
-                            dcc.Graph(id='binary-plot-2', style={'height': '45vh', 'width': '45vh'}),
-                            dcc.Graph(id='binary-plot-3', style={'height': '45vh', 'width': '45vh'})
+                            # Left column for binary plots
+                            html.Div(
+                                [
+                                    dcc.Graph(id='binary-plot-1', style={'height': '30vh', 'width': '100%'}),
+                                    dcc.Graph(id='binary-plot-2', style={'height': '30vh', 'width': '100%'}),
+                                    dcc.Graph(id='binary-plot-3', style={'height': '30vh', 'width': '100%'})
+                                ],
+                                style={
+                                    'display': 'flex',
+                                    'flexDirection': 'column',
+                                    'width': '30%',  # Left column width
+                                    'margin-right': '2%'  # Spacing between columns
+                                }
+                            ),
+
+                            # Right column for the ternary plot
+                            html.Div(
+                                dcc.Graph(id='ternary-plot', style={'height': '90vh', 'width': '100%'}),
+                                style={
+                                    'width': '65%',  # Right column width
+                                    'margin-left': 'auto'
+                                }
+                            )
                         ],
                         style={
-                            'display': 'grid',
-                            'gridTemplateColumns': '1fr 1fr',
-                            'gridGap': '15px',
-                            'margin-left': '25%',
-                            'height': '80vh',
-                            'width': '80vw',
-                            'padding': '2px',
-                            'boxSizing': 'border-box'
+                            'display': 'flex',
+                            'flexDirection': 'row',
+                            'margin-left': '20%',  # Adjust for left panel width
+                            'boxSizing': 'border-box',
+                            'height': '100vh'
                         }
                     )
                 ]
