@@ -5,7 +5,6 @@ This script generates a Dash web app for the G-Liquid Ternary Interpolation proj
 The app allows users to input a ternary system and select an interpolation type to generate the interpolated 
 ternary liquidus and corresponding binary phase diagrams. 
 '''
-
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
@@ -153,7 +152,6 @@ def create_gliqtern_app(requests_pathname_prefix):
             dcc.Interval(id='interval-component', interval=1000, n_intervals=0, disabled=True)
         ]
     )
-
 
     # Combined callback for triggering the plot and updating the graph
     @app.callback(
