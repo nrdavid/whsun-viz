@@ -1,3 +1,10 @@
+'''
+Author: Abrar Rauf
+
+Description: This script contains several methods related to constructing lower convex hulls in all extensive space
+and extracting the hyperplane equations and inclinations of the simplices of the lower hull
+'''
+
 from scipy.spatial import ConvexHull
 import numpy as np 
 import sympy as smp
