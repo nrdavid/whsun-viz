@@ -1,3 +1,10 @@
+
+'''
+Author: Abrar Rauf
+
+This module contains the classes for ternary interpolation and ternary phase diagram plotting.
+'''
+
 import numpy as np
 import pandas as pd
 from gliquid_ternary_interpolation.BinaryLiquid import BinaryLiquid
@@ -57,46 +64,33 @@ def ternary_to_cartesian(x_A, x_B):
     return x, y
 
 def point_to_surface_height(new_point, liquid_points, triangulation, triangles):
-    # Convert the new point into its Cartesian equivalent (if ternary conversion is required)
     new_point_cartesian = ternary_to_cartesian(new_point[0], new_point[1])
-
-    # if new_point_cartesian[0] == 0.0 or new_point_cartesian[1] == 0.0:
-    #     return 0, np.array([0.0, 0.0, 0.0])
-    
-    # Find the simplex (triangle) that contains the new point's projection
     simplex = triangulation.find_simplex(new_point_cartesian[:2])
     
     if simplex == -1:
         raise ValueError("The new point is outside the triangulated surface.")
 
-    # Get the vertices of the triangle containing the new point
     vertices = triangles[simplex]
     
-    # Extract the coordinates of the vertices
     v0 = liquid_points[vertices[0]]
     v1 = liquid_points[vertices[1]]
     v2 = liquid_points[vertices[2]]
     
     def find_z_on_triangle(x, y, vertex1, vertex2, vertex3):    
-        # Unpack the vertices
         x1, y1, z1 = vertex1
         x2, y2, z2 = vertex2
         x3, y3, z3 = vertex3
 
-        # Create two edge vectors from vertex1
         v1 = np.array([x2 - x1, y2 - y1, z2 - z1])
         v2 = np.array([x3 - x1, y3 - y1, z3 - z1])
-
-        # Compute the normal vector to the plane using cross product
         normal = np.cross(v1, v2)
         A, B, C = normal
         D = -A * x1 - B * y1 - C * z1
 
         if np.isclose(C, 0):
             raise ValueError("The triangle is degenerate or vertical in the xy-plane.")
+        
 
-        # Plane equation: A(x - x1) + B(y - y1) + C(z - z1) = 0
-        # Solving for z:
         z = (-D - A * x - B * y) / C
         
         return z
@@ -152,7 +146,7 @@ class ternary_interpolation:
             try:
                 params = df.loc[df['system'] == system, ['L0_a', 'L0_b', 'L1_a', 'L1_b']].values[0]
                 if invert:
-                    params[2:] *= -1  # Flip the sign of the L1 terms if inverted
+                    params[2:] *= -1 
                 return params
             except IndexError:
                 print(f"Predicted parameters for {system} not found. Terminating!")

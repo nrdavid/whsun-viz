@@ -1,4 +1,10 @@
-'''___Imports___'''
+'''
+Author: Abrar Rauf
+
+Description: This script contains the HSX class which is used to calculate the lower convex hull of a set of 
+points in a extensive space. The class also contains methods to calculate the liquidus invariants of the convex hull and 
+to plot the convex hull and the liquidus invariants.
+'''
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -641,13 +647,23 @@ class HSX:
 
         # Define axis limits for the 't' axis
         fig.update_layout(
-            yaxis=dict(range=[max(self.conds[0] - 100, -273), self.conds[1] + 100], ticksuffix="  "),
-            xaxis=dict(range=[0, 100]),
+            yaxis=dict(range=[max(self.conds[0] - 100, -273), self.conds[1] + 100], 
+                       ticksuffix="  ", automargin=True),
+            xaxis=dict(range=[0, 100], automargin=True),
             xaxis_title=f'{self.comps[1]} (at. %)',
             yaxis_title='T (' + chr(176) + 'C)',
             plot_bgcolor='white',
             showlegend=False,
-            font_size=22
+            font_size=22,
+            title={ 
+                'x': 0.5,  
+                'xanchor': 'center', 
+                'yanchor': 'top'  
+            },
+            title_pad=dict(t=1),
+            margin = dict(
+                l = 5, r = 5, t = 30, b = 5
+            ),  
         )
 
         format_color = 'black'
