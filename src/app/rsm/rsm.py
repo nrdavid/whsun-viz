@@ -39,69 +39,69 @@ the pure single phases are __green__ and __red__, the liquid phase is __blue__, 
                         html.Div([
                             dcc.Markdown(id='w_AB-disp', style={'marginTop': 20}, mathjax=True),    
                             dcc.Slider(
-                                    -100, 100, step=.1,
+                                    -30, 30, step=.1,
                                     value=20,
-                                    marks={-100 + 20*i : '{}'.format(-100 + 20*i) for i in range(0,11)},
+                                    marks={-30 + 10*i : '{}'.format(-30 + 10*i) for i in range(0,7)},
                                     id='w-AB'),
                             dcc.Markdown(id='L0-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    -30, 20, step=0.1,
+                                    -30, 30, step=0.1,
                                     value=0,
-                                    marks={5* i - 30 : '{}'.format(5*i - 30) for i in range(0,11)},
+                                    marks={-30 + 10*i : '{}'.format(-30 + 10*i) for i in range(0,7)},
                                     id='L0'),
                             dcc.Markdown(id='L1-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    -100, 100, step=.1,
+                                    -30, 30, step=.1,
                                     value=10,
-                                    marks={-100 + 20*i : '{}'.format(-100 + 20*i) for i in range(0,11)},
+                                    marks={-30 + 10*i : '{}'.format(-30 + 10*i) for i in range(0,7)},
                                     id='L1'),
                             dcc.Markdown(id='HA-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    -100, 100, step=.1,
-                                    value=-35,
-                                    marks={-100 + 20*i : '{}'.format(-100 + 20*i) for i in range(0,11)},
+                                    -30, 30, step=.1,
+                                    value=-30,
+                                    marks={-30 + 10*i : '{}'.format(-30 + 10*i) for i in range(0,7)},
                                     id='HA'),
                             dcc.Markdown(id='HB-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    -100, 100, step=.1,
-                                    value=-36,
-                                    marks={-100 + 20*i : '{}'.format(-100 + 20*i) for i in range(0,11)},\
+                                    -30, 30, step=.1,
+                                    value=-30,
+                                    marks={-30 + 10*i : '{}'.format(-30 + 10*i) for i in range(0,7)},\
                                     id='HB'),
                             dcc.Markdown(id='SA-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    0, 100, step=0.1,
+                                    0, 15, step=0.1,
                                     value=11.1,
-                                    marks={i * 10 : '{}'.format(i*10) for i in range(0,11)},
+                                    marks={i * 3 : '{}'.format(i*3) for i in range(0,6)},
                                     id='SA'),
                             dcc.Markdown(id='SB-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    0, 100, step=0.1,
+                                    0, 15, step=0.1,
                                     value=2.4,
-                                    marks={i * 10 : '{}'.format(i*10) for i in range(0,11)},
+                                    marks={i * 3 : '{}'.format(i*3) for i in range(0,6)},
                                     id='SB'),
                             dcc.Markdown(id='HAL-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    -100, 100, step=.1,
+                                    -30, 30, step=.1,
                                     value=-20,
-                                    marks={-100 + 20*i : '{}'.format(-100 + 20*i) for i in range(0,11)},
+                                    marks={-30 + 10*i : '{}'.format(-30 + 10*i) for i in range(0,7)},
                                     id='HAL'),
                             dcc.Markdown(id='HBL-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    -100, 100, step=.1,
-                                    value=-25,
-                                    marks={-100 + 20*i : '{}'.format(-100 + 20*i) for i in range(0,11)},
+                                    -30, 30, step=.1,
+                                    value=-15.8,
+                                    marks={-30 + 10*i : '{}'.format(-30 + 10*i) for i in range(0,7)},
                                     id='HBL'),
                             dcc.Markdown(id='SAL-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    0, 100, step=0.1,
+                                    0, 30, step=0.1,
                                     value=21.6,
-                                    marks={i * 10 : '{}'.format(i*10) for i in range(0,11)},
+                                    marks={i * 5 : '{}'.format(i*5) for i in range(0,7)},
                                     id='SAL'),
                             dcc.Markdown(id='SBL-disp', style={'marginTop': 20}, mathjax=True), 
                             dcc.Slider(
-                                    0, 100, step=0.1,
+                                    0, 30, step=0.1,
                                     value=15,
-                                    marks={i * 10 : '{}'.format(i*10) for i in range(0,11)},
+                                    marks={i * 5 : '{}'.format(i*5) for i in range(0,7)},
                                     id='SBL'),
                             ], style={'width': '39%', "text-align": "left", 'float':'left', 'min-width':'480px'})
                         ]), html.Div([dcc.Markdown(footer)], style={'float':'left', 'clear': 'left'})])
@@ -211,6 +211,6 @@ the pure single phases are __green__ and __red__, the liquid phase is __blue__, 
         Input('reset', 'n_clicks'),
         prevent_initial_call=True)
     def reset_values(_):
-        return visualize_convex_hull(generate_data(x, T_range), phases, x, T_range), 20, 0, 10, -35, -36, 11.1, 2.4, -20, -25, 21.6, 15
+        return visualize_convex_hull(generate_data(x, T_range), phases, x, T_range), 20, 0, 10, -30, -30, 11.1, 2.4, -20, -15.8, 21.6, 15
 
     return dash_app
