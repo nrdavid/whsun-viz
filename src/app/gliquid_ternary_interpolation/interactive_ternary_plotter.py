@@ -178,14 +178,14 @@ def create_gliqtern_app(requests_pathname_prefix):
             plot_ready = False
             thread = threading.Thread(target=generate_plot, args=(text_input, interp_type, upper_increment, lower_increment))
             thread.start()
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Plot is being generated...", False
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Takes up to 2 minutes to generate plot...", False
 
         # If the interval triggered the callback, check if the plot is ready
         if plot_ready:
             return ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, "", True
 
         # While waiting, do not update the plot, keep the interval running
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Plot is being generated...", False
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Takes up to 2 minutes to generate plot...", False
 
     return app
 
