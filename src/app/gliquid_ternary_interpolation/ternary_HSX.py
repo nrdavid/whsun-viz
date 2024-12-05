@@ -1,3 +1,4 @@
+
 '''
 Author: Abrar Rauf
 
@@ -64,7 +65,6 @@ def ternary_to_cartesian(x_A, x_B):
 
 def point_to_surface_height(new_point, liquid_points, triangulation, triangles):
     new_point_cartesian = ternary_to_cartesian(new_point[0], new_point[1])
-
     simplex = triangulation.find_simplex(new_point_cartesian[:2])
     
     if simplex == -1:
@@ -83,7 +83,6 @@ def point_to_surface_height(new_point, liquid_points, triangulation, triangles):
 
         v1 = np.array([x2 - x1, y2 - y1, z2 - z1])
         v2 = np.array([x3 - x1, y3 - y1, z3 - z1])
-
         normal = np.cross(v1, v2)
         A, B, C = normal
         D = -A * x1 - B * y1 - C * z1
@@ -91,6 +90,7 @@ def point_to_surface_height(new_point, liquid_points, triangulation, triangles):
         if np.isclose(C, 0):
             raise ValueError("The triangle is degenerate or vertical in the xy-plane.")
         
+
         z = (-D - A * x - B * y) / C
         
         return z
