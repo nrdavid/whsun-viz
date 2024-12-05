@@ -34,6 +34,7 @@ def redirect_to_gliq_im():
 def redirect_to_test_web():
     return RedirectResponse(url="/cogito/bond_plots.html")
 
+
 dash_app_rsm = create_rsm_app(requests_pathname_prefix="/rsm/")
 dash_app_tb = create_tb_app(requests_pathname_prefix="/tb/")
 dash_app_cohp = COHPDashApp().create_cohp_dashapp(requests_pathname_prefix="/cogito-cohp/")
