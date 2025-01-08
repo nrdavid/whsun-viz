@@ -355,9 +355,9 @@ class ternary_hsx_plotter(ternary_interpolation):
 
         fusion_temp = pd.read_json(os.path.join(self.dir, 'fusion_temperatures.json'), typ='series')
         tern_temp = fusion_temp[self.tern_sys].values 
-        max_temp = np.max(tern_temp)
+        max_temp = np.max(tern_temp) + 250
         min_temp = np.min(tern_temp)
-        self.conds = [np.min(np.array([0, min_temp - 200])), max_temp]
+        self.conds = [np.min(np.array([0, min_temp - 200])), max_temp + self.temp_slider[1]]
         self.hsx_df['x0'] = self.hsx_df['x0'].round(4)
         self.hsx_df['x1'] = self.hsx_df['x1'].round(4)
         self.hsx_df = self.hsx_df.rename(columns={'Phase Name': 'Phase'})
@@ -539,4 +539,211 @@ class ternary_hsx_plotter(ternary_interpolation):
         )
 
         return fig
+
+
+class ternary_gtx_plotter(ternary_interpolation):
+    def __init__(self, tern_sys: List[str], dir: str, interp_type: str, delta = 0.025, temp_slider = [0, 0], T_incr = 5):
+        super().__init__(tern_sys, dir, interp_type, delta)
+        self.temp_slider = temp_slider
+        self.T_incr = T_incr
+
+    def init_sys(self):
+        self.tern_sys_name = '-'.join(sorted(self.tern_sys))
+        self.phases = self.hsx_df['Phase Name'].unique().tolist()
+
+        solid_phases = self.phases.copy()
+        solid_phases.remove('L')
+        color_array = px.colors.qualitative.Dark24
+        self.color_map = dict(zip(solid_phases, color_array))
+        self.color_map['L'] = 'cornflowerblue'
+
+        fusion_temp = pd.read_json(os.path.join(self.dir, 'fusion_temperatures.json'), typ='series')
+        tern_temp = fusion_temp[self.tern_sys].values 
+        max_temp = np.max(tern_temp) + 250
+        min_temp = np.min(tern_temp)
+        self.conds = [np.min(np.array([0, min_temp - 200])), max_temp + self.temp_slider[1]]
+        self.T_grid = np.arange(self.conds[0], self.conds[1] + self.T_incr, self.T_incr)
+        self.hsx_df['x0'] = self.hsx_df['x0'].round(4)
+        self.hsx_df['x1'] = self.hsx_df['x1'].round(4)
+        self.hsx_df = self.hsx_df.rename(columns={'Phase Name': 'Phase'})
+        self.hsx_df['Colors'] = self.hsx_df['Phase'].map(self.color_map)
+
+        self.df_Tgroups = {}
+        for T in self.T_grid:
+            self.hsx_df['G'] = self.hsx_df['H'] - T*self.hsx_df['S']
+            self.df_Tgroups[T] = self.hsx_df[['x0', 'x1', 'G', 'Phase', 'Colors']].copy()
+        
+        print('Initialization complete')
+
+    def process_data(self):
+        self.init_sys()
+        start_time = time.time()
+        self.equil_df_list = []
+        for T in self.T_grid:       
+            if T < 0:
+                continue  
+            points = np.array(self.df_Tgroups[T][['x0', 'x1', 'G']])
+            simplices = gliq_lowerhull3(points, vertical_simplices=True)
+            simplex_vertices = []
+            for simplex in simplices:
+                simplex_vertices.append(points[simplex])
+
+            final_phases = []
+            for simplex in simplices:
+                phase1 = self.df_Tgroups[T].loc[simplex[0], 'Phase']
+                phase2 = self.df_Tgroups[T].loc[simplex[1], 'Phase']
+                phase3 = self.df_Tgroups[T].loc[simplex[2], 'Phase']
+                
+                phase_arr = np.array([phase1, phase2, phase3])
+                final_phases.append(phase_arr)
+
+            data = []
+            for i, simplex in enumerate(simplices):
+                labels = final_phases[i]
+                if len(set(labels)) == 0:
+                    continue
+                else:
+                    x0_coords = [points[vertex][0] for vertex in simplex] 
+                    x1_coords = [points[vertex][1] for vertex in simplex]
+                    t_val = T
+
+                j = 0
+                for x0, x1 in zip(x0_coords, x1_coords):
+                    label = labels[j]
+                    color = self.color_map[label]
+                    data.append([x0, x1, t_val, label, color])
+                    j += 1
+
+            temp_df = pd.DataFrame(data, columns=['x0', 'x1', 'T', 'Phase', 'Colors'])
+
+            temp_df = cartesian_to_ternary(temp_df)
+            temp_df['T'] = temp_df['T'] - 273.15
+
+            self.equil_df_list.append(temp_df)
+
+        end_time = time.time()
+        print(f"Lower hull evaluation and post processing time:: {end_time - start_time} seconds for temperature increment of {self.T_incr}")
+
+    def plot_ternary(self):
+        fig = go.Figure()
+
+        self.plotting_df = pd.concat(self.equil_df_list)
+        self.liq_plotting_df = self.plotting_df[self.plotting_df['Phase'] == 'L']
+        self.solid_plotting_df = self.plotting_df[self.plotting_df['Phase'] != 'L']
+        self.solid_plotting_df = self.solid_plotting_df.sort_values('T').drop_duplicates(subset=['x0', 'x1'], keep='last')
+
+        for index, row in self.solid_plotting_df.iterrows():
+            x0 = row['x0']
+            x1 = row['x1']
+            label = row['Phase']
+            color = row['Colors']
+            new_row = {'x0': x0, 'x1': x1, 'T': self.conds[0], 'Phase': label, 'Colors': color}
+            new_row_df = pd.DataFrame([new_row])
+            self.solid_plotting_df = pd.concat([self.solid_plotting_df, new_row_df])
+
+        self.liq_plotting_df = self.liq_plotting_df.sort_values('T').drop_duplicates(subset=['x0', 'x1'], keep='first')
+
+        solid_points = np.array(list(zip(self.solid_plotting_df['x0'], self.solid_plotting_df['x1'], self.solid_plotting_df['T'])))
+        liq_points = np.array(list(zip(self.liq_plotting_df['x0'], self.liq_plotting_df['x1'], self.liq_plotting_df['T'])))
+        cart_liq_points = [ternary_to_cartesian(point[0], point[1]) for point in liq_points]
+        self.triangulation = Delaunay(cart_liq_points)
+        triangles = self.triangulation.simplices
+
+        try:
+            for point in solid_points:
+                height = point_to_surface_height(point, liq_points, self.triangulation, triangles)[0]
+                if height > 1:
+                    new_row = {'x0': point[0], 'x1': point[1], 'T': point[2] + 3, 'Phase': 'L', 'Colors': 'cornflowerblue'}
+                    new_row_df = pd.DataFrame([new_row])
+                    self.liq_plotting_df = pd.concat([self.liq_plotting_df, new_row_df])
+        except Exception as e:
+            print('Solid meshing error:', e)
+
+        liq_points = np.array(list(zip(self.liq_plotting_df['x0'], self.liq_plotting_df['x1'], self.liq_plotting_df['T'])))
+        cart_liq_points = [ternary_to_cartesian(point[0], point[1]) for point in liq_points]
+        self.triangulation = Delaunay(cart_liq_points)
+        triangles = self.triangulation.simplices
+
+        self.plotting_df = pd.concat([self.solid_plotting_df, self.liq_plotting_df])
+
+        fig.add_trace(go.Scatter3d(
+            x = self.liq_plotting_df['x0'], y = self.liq_plotting_df['x1'], z = self.liq_plotting_df['T'],
+            mode = 'markers', marker = dict(size = 5, color = self.liq_plotting_df['Colors']),
+            showlegend=False,
+        ))
+
+        for label, group in self.solid_plotting_df.groupby('Phase'):
+            fig.add_trace(go.Scatter3d(
+                x = group['x0'], y = group['x1'], z = group['T'],
+                mode = 'lines', line = dict(color = group['Colors'], width = 10),
+                showlegend = False, opacity = 1,
+            ))
+
+        fig.add_trace(go.Mesh3d(
+            x = self.liq_plotting_df['x0'], y = self.liq_plotting_df['x1'], z = self.liq_plotting_df['T'],
+            i = triangles[:, 0], j = triangles[:, 1], k = triangles[:, 2],
+            opacity = 0.7, colorscale = 'Viridis', intensity = self.liq_plotting_df['T'],
+            showscale = False,
+        ))
+
+        for phase, color in self.color_map.items():
+            fig.add_trace(go.Scatter3d(
+                x=[None], y=[None], z=[None], mode='markers',
+                marker=dict(color=color, size=10, opacity=1.0),
+                name=phase,
+                textfont=dict(size=8),
+                showlegend=True
+            ))
+
+        fig.add_trace(go.Scatter3d(
+            x=[0, 0.5, 1, 0],
+            y=[0, np.sqrt(3)/2, 0, 0],
+            z=[self.conds[0], self.conds[0], self.conds[0], self.conds[0]],
+            mode='lines',
+            line=dict(color='black', width=5),
+            name = 'axes',
+            showlegend=False
+        ))
+
+        fig.add_trace(go.Scatter3d(
+            x=[-0.02, 0.48, 0.98, -0.02],
+            y=[0.02, np.sqrt(3)/2 + 0.02, .02, .02],
+            z=[self.conds[0] - 50, self.conds[0] - 50, self.conds[0]- 50, self.conds[0] - 50],
+            mode='text',
+            text=[f'<b>{self.tern_sys[0]}</b>', f'<b>{self.tern_sys[2]}</b>', f'<b>{self.tern_sys[1]}</b>'],
+            textposition='top center',
+            showlegend=False,
+            textfont=dict(size=12)
+        ))
+         
+        fig.update_layout(
+            legend=dict(
+                x=0.95, y=0.95, xanchor='left', yanchor='top'    
+            ),
+            autosize = True,
+            margin = dict(l = 50, r = 50, b = 50, t = 50),
+            scene=dict(
+                zaxis = dict(range=[self.conds[0] - 50 - self.temp_slider[0], self.conds[1] + self.temp_slider[1]],
+                            title='Temperature (C)'), 
+                xaxis = dict(title=' ',
+                        showticklabels=False,
+                        showaxeslabels=False,
+                        showgrid=False,
+                ),
+                yaxis = dict(title=' ',
+                        showticklabels=False,
+                        showaxeslabels=False,
+                        showgrid=False,
+                ),
+                xaxis_visible=True,
+                yaxis_visible=True,
+                zaxis_visible=True,
+                bgcolor='white',
+                camera=dict(
+                    projection=dict(type='orthographic'),         
+                )
+            )
+        )
+
+        return fig    
 
