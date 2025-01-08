@@ -11,7 +11,7 @@ from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import threading
 import flask
-from gliquid_ternary_interpolation.ternary_HSX import ternary_hsx_plotter
+from gliquid_ternary_interpolation.ternary_HSX import ternary_gtx_plotter
 # from ternary_HSX import ternary_hsx_plotter
 
 def create_gliqtern_app(requests_pathname_prefix):
@@ -31,7 +31,7 @@ def create_gliqtern_app(requests_pathname_prefix):
         text_input = text_input.split('-')
         print(f"Generating plot for: {text_input} with interpolation type: {interp_type}")
         temp_slider = [lower_increment, upper_increment]
-        plotter = ternary_hsx_plotter(text_input, dir, interp_type, temp_slider=temp_slider)
+        plotter = ternary_gtx_plotter(text_input, dir, interp_type, temp_slider=temp_slider)
         plotter.interpolate()
         plotter.process_data()
 
@@ -71,6 +71,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                     dcc.Input(id='text-input', type='text', value='', placeholder="(e.g., Bi-Cd-Sn)", style={'fontSize': '14px'}),
                     html.Br(),
                     html.Br(),
+                    html.P("For some systems, the default temperature range may not capture the entire liquidus. Manually input values to the temperature slider to decrement or increment the lower and upper temperature bounds", style={'fontSize': '14px'}),
                     html.P("Temperature Axis Slider:", style={'fontSize': '14px'}),
                     html.Label("Increment Upper Bound:", style={'fontSize': '14px'}),
                     dcc.Input(id='upper_increment', type='number', value=0.0, style={'fontSize': '14px'}),
