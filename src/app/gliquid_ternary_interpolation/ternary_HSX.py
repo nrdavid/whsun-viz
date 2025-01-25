@@ -666,11 +666,11 @@ class ternary_gtx_plotter(ternary_interpolation):
 
         self.plotting_df = pd.concat([self.solid_plotting_df, self.liq_plotting_df])
 
-        fig.add_trace(go.Scatter3d(
-            x = self.liq_plotting_df['x0'], y = self.liq_plotting_df['x1'], z = self.liq_plotting_df['T'],
-            mode = 'markers', marker = dict(size = 5, color = self.liq_plotting_df['Colors']),
-            showlegend=False,
-        ))
+        # fig.add_trace(go.Scatter3d(
+        #     x = self.liq_plotting_df['x0'], y = self.liq_plotting_df['x1'], z = self.liq_plotting_df['T'],
+        #     mode = 'markers', marker = dict(size = 5, color = self.liq_plotting_df['Colors']),
+        #     showlegend=False,
+        # ))
 
         for label, group in self.solid_plotting_df.groupby('Phase'):
             fig.add_trace(go.Scatter3d(
