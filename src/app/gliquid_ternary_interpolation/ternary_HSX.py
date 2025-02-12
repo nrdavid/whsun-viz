@@ -123,7 +123,7 @@ class ternary_interpolation:
         x_A = A.flatten()
         x_B = B.flatten()
         x_C = C.flatten()
-        valid_indices = np.where(x_A + x_B + x_C == 1)
+        valid_indices = np.where(np.isclose(x_A + x_B + x_C, 1, atol=1e-6))
         x_A = x_A[valid_indices]
         x_B = x_B[valid_indices]
         x_C = x_C[valid_indices]
