@@ -28,71 +28,84 @@ def create_gliqtern_app(requests_pathname_prefix):
     binary_plot_2 = go.Figure()
     binary_plot_3 = go.Figure()
     plot_ready = False
+    error_occurred = False
+    error_message = ""
 
     def generate_plot(text_input, upper_increment, lower_increment):
-        nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready
-        dir = "gliquid_ternary_interpolation/matrix_data_jsons/"
-        text_input = text_input.split('-')
-        text_input = sorted(text_input)
-        print(f"Generating plot for: {text_input} with interpolation type: {interp_type}")
-        temp_slider = [lower_increment, upper_increment]
-        binary_param_df = pd.read_excel(dir + "multi_fit_no1S_nmae_lt_0.5.xlsx")
-        binary_param_pred_df = pd.read_excel(dir + "v17_comb1S_tau10k_predictions_rf_optimized.xlsx")
-        binary_sys_labels = [
-            f"{text_input[0]}-{text_input[1]}", f"{text_input[1]}-{text_input[2]}", f"{text_input[2]}-{text_input[0]}"
-        ]
-        print("Binary System Labels: ", binary_sys_labels)
-        binary_L_dict = {}
-        fitorpred = {}
-        for bin_sys in binary_sys_labels:
-            flipped_sys = "-".join(sorted(bin_sys.split('-')))
-
-            if bin_sys in binary_param_df['system'].tolist():
-                params = binary_param_df[binary_param_df['system'] == bin_sys].iloc[0]
-                fitorpred[bin_sys] = "fit"
-            elif flipped_sys in binary_param_df['system'].tolist():
-                params = binary_param_df[binary_param_df['system'] == flipped_sys].iloc[0]
-                fitorpred[bin_sys] = "fit"
-            elif bin_sys in binary_param_pred_df['system'].tolist():
-                params = binary_param_pred_df[binary_param_pred_df['system'] == bin_sys].iloc[0]
-                fitorpred[bin_sys] = "pred"
-            elif flipped_sys in binary_param_pred_df['system'].tolist():
-                params = binary_param_pred_df[binary_param_pred_df['system'] == flipped_sys].iloc[0]
-                fitorpred[bin_sys] = "pred"
-            else:
-                raise ValueError(f"Binary system {bin_sys} not found in the parameter dataframe.")
-
-            binary_L_dict[bin_sys] = [
-                float(params["L0_a"]),
-                float(params["L0_b"]),
-                float(params["L1_a"]),
-                float(params["L1_b"])
-            ]
+        nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready, error_occurred, error_message
+        
+        try:
+            error_occurred = False
+            error_message = ""
             
-        print(fitorpred)
-        print("Binary Interaction Parameters: ", binary_L_dict)
-        plotter = ternary_gtx_plotter(text_input, dir, interp_type=interp_type, param_format=param_format, L_dict=binary_L_dict, temp_slider=temp_slider, T_incr=5.0, delta = 0.025, fit_or_pred=fitorpred)
-        plotter.interpolate()
-        plotter.process_data()
+            dir = "gliquid_ternary_interpolation/matrix_data_jsons/"
+            text_input = text_input.split('-')
+            text_input = sorted(text_input)
+            print(f"Generating plot for: {text_input} with interpolation type: {interp_type}")
+            temp_slider = [lower_increment, upper_increment]
+            binary_param_df = pd.read_excel(dir + "multi_fit_no1S_nmae_lt_0.5.xlsx")
+            binary_param_pred_df = pd.read_excel(dir + "v17_comb1S_tau10k_predictions_rf_optimized.xlsx")
+            binary_sys_labels = [
+                f"{text_input[0]}-{text_input[1]}", f"{text_input[1]}-{text_input[2]}", f"{text_input[2]}-{text_input[0]}"
+            ]
+            print("Binary System Labels: ", binary_sys_labels)
+            binary_L_dict = {}
+            fitorpred = {}
+            for bin_sys in binary_sys_labels:
+                flipped_sys = "-".join(sorted(bin_sys.split('-')))
 
-        sub_width = 420
-        sub_height = 350
-        tern_width = 900
-        tern_height = 1000
-        # Generate the plots
-        ternary_plot = plotter.plot_ternary()
-        ternary_plot.update_layout(title=f"<b>Interpolated {plotter.tern_sys_name} Ternary Phase Diagram</b>", showlegend=True, width=tern_width, height=tern_height, font=dict(size=14))
+                if bin_sys in binary_param_df['system'].tolist():
+                    params = binary_param_df[binary_param_df['system'] == bin_sys].iloc[0]
+                    fitorpred[bin_sys] = "fit"
+                elif flipped_sys in binary_param_df['system'].tolist():
+                    params = binary_param_df[binary_param_df['system'] == flipped_sys].iloc[0]
+                    fitorpred[bin_sys] = "fit"
+                elif bin_sys in binary_param_pred_df['system'].tolist():
+                    params = binary_param_pred_df[binary_param_pred_df['system'] == bin_sys].iloc[0]
+                    fitorpred[bin_sys] = "pred"
+                elif flipped_sys in binary_param_pred_df['system'].tolist():
+                    params = binary_param_pred_df[binary_param_pred_df['system'] == flipped_sys].iloc[0]
+                    fitorpred[bin_sys] = "pred"
+                else:
+                    raise ValueError(f"Binary system {bin_sys} not found in the parameter dataframe.")
 
-        binary_plot_1 = plotter.bin_fig_list[0]
-        binary_plot_1.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
+                binary_L_dict[bin_sys] = [
+                    float(params["L0_a"]),
+                    float(params["L0_b"]),
+                    float(params["L1_a"]),
+                    float(params["L1_b"])
+                ]
+                
+            print(fitorpred)
+            print("Binary Interaction Parameters: ", binary_L_dict)
+            plotter = ternary_gtx_plotter(text_input, dir, interp_type=interp_type, param_format=param_format, L_dict=binary_L_dict, temp_slider=temp_slider, T_incr=5.0, delta = 0.025, fit_or_pred=fitorpred)
+            plotter.interpolate()
+            plotter.process_data()
 
-        binary_plot_2 = plotter.bin_fig_list[1]
-        binary_plot_2.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
+            sub_width = 420
+            sub_height = 350
+            tern_width = 900
+            tern_height = 1000
+            # Generate the plots
+            ternary_plot = plotter.plot_ternary()
+            ternary_plot.update_layout(title=f"<b>Interpolated {plotter.tern_sys_name} Ternary Phase Diagram</b>", showlegend=True, width=tern_width, height=tern_height, font=dict(size=14))
 
-        binary_plot_3 = plotter.bin_fig_list[2]
-        binary_plot_3.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
+            binary_plot_1 = plotter.bin_fig_list[0]
+            binary_plot_1.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
 
-        plot_ready = True
+            binary_plot_2 = plotter.bin_fig_list[1]
+            binary_plot_2.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
+
+            binary_plot_3 = plotter.bin_fig_list[2]
+            binary_plot_3.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
+
+            plot_ready = True
+            
+        except Exception as e:
+            print(f"Error occurred during plot generation: {str(e)}")
+            error_occurred = True
+            error_message = "Invalid or unsupported system, please try again."
+            plot_ready = True  # Set to True so the callback triggers to show the error
 
 
     app.layout = html.Div(
@@ -195,7 +208,7 @@ def create_gliqtern_app(requests_pathname_prefix):
         [State('text-input', 'value'), State('upper_increment', 'value'), State('lower_increment', 'value')]
     )
     def trigger_and_update_plot(n_clicks, n_intervals, text_input, upper_increment, lower_increment):
-        nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready
+        nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready, error_occurred, error_message
 
         # Identify what triggered the callback
         ctx = dash.callback_context
@@ -203,13 +216,21 @@ def create_gliqtern_app(requests_pathname_prefix):
         # If the button is clicked, start generating the plot in a separate thread
         if ctx.triggered and 'submit-val' in ctx.triggered[0]['prop_id']:
             plot_ready = False
+            error_occurred = False
+            error_message = ""
             thread = threading.Thread(target=generate_plot, args=(text_input, upper_increment, lower_increment))
             thread.start()
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Takes up to 2 minutes to generate plot...", False
 
         # If the interval triggered the callback, check if the plot is ready
         if plot_ready:
-            return ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, "", True
+            if error_occurred:
+                # Return empty plots and show error message
+                empty_fig = go.Figure()
+                return empty_fig, empty_fig, empty_fig, empty_fig, error_message, True
+            else:
+                # Return successful plots
+                return ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, "", True
 
         # While waiting, do not update the plot, keep the interval running
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Takes up to 2 minutes to generate plot...", False
