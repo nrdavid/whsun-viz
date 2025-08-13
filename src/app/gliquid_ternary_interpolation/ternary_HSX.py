@@ -672,18 +672,18 @@ class ternary_gtx_plotter(ternary_interpolation):
             name = 'axes',
             showlegend=False
         ))
+        
+        fig.add_trace(go.Scatter3d(
+            x=[-0.02, 0.48, 0.98, -0.02],
+            y=[0.02, np.sqrt(3)/2 + 0.02, .02, .02],
+            z=[self.conds[0]-100, self.conds[0]-100, self.conds[0]-100, self.conds[0]-100],
+            mode='text',
+            text=[f'<b>{self.tern_sys[0]}</b>', f'<b>{self.tern_sys[2]}</b>', f'<b>{self.tern_sys[1]}</b>'],
+            textposition='top center',
+            showlegend=False,
+            textfont=dict(size=12)
+        ))
 
-        # FIXTHISLATER
-        # fig.add_trace(go.Scatter3d(
-        #     x=[-0.02, 0.48, 0.98, -0.02],
-        #     y=[0.02, np.sqrt(3)/2 + 0.02, .02, .02],
-        #     z=[self.conds[0] - 50, self.conds[0] - 50, self.conds[0]- 50, self.conds[0] - 50],
-        #     mode='text',
-        #     text=[f'<b>{self.tern_sys[0]}</b>', f'<b>{self.tern_sys[1]}</b>', f'<b>{self.tern_sys[2]}</b>'],
-        #     textposition='top center',
-        #     showlegend=False,
-        #     textfont=dict(size=12)
-        # ))
          
         fig.update_layout(
             legend=dict(
@@ -692,7 +692,7 @@ class ternary_gtx_plotter(ternary_interpolation):
             autosize = True,
             margin = dict(l = 50, r = 50, b = 50, t = 50),
             scene=dict(
-                zaxis = dict(range=[self.conds[0] - 50 - self.temp_slider[0], self.conds[1] + self.temp_slider[1]],
+                zaxis = dict(range=[self.conds[0] - 200 - self.temp_slider[0], self.conds[1] - 200 + self.temp_slider[1]],
                             title='Temperature (C)'), 
                 xaxis = dict(title=' ',
                         showticklabels=False,
@@ -714,5 +714,5 @@ class ternary_gtx_plotter(ternary_interpolation):
             )
         )
 
-        return fig    
+        return fig
 

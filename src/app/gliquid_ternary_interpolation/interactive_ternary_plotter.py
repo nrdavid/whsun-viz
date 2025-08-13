@@ -81,7 +81,7 @@ def create_gliqtern_app(requests_pathname_prefix):
         tern_height = 1000
         # Generate the plots
         ternary_plot = plotter.plot_ternary()
-        ternary_plot.update_layout(title=f"Interpolated {plotter.tern_sys_name} Ternary Phase Diagram", showlegend=True, width=tern_width, height=tern_height, font=dict(size=10))
+        ternary_plot.update_layout(title=f"<b>Interpolated {plotter.tern_sys_name} Ternary Phase Diagram</b>", showlegend=True, width=tern_width, height=tern_height, font=dict(size=14))
 
         binary_plot_1 = plotter.bin_fig_list[0]
         binary_plot_1.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
@@ -161,7 +161,8 @@ def create_gliqtern_app(requests_pathname_prefix):
                                 dcc.Graph(id='ternary-plot', style={'height': '90vh', 'width': '100%'}),
                                 style={
                                     'width': '65%',  # Right column width
-                                    'margin-left': 'auto'
+                                    'margin-left': 'auto',
+                                    'paddingTop': '30px'
                                 }
                             )
                         ],
