@@ -366,6 +366,9 @@ class ternary_interpolation:
             sys_eles.append(el)
         entries_init = self.get_phasedia_entries(sys)
         entries = [ComputedStructureEntry.from_dict(e) for e in entries_init]
+        if "Mg" in sys:
+            # filter out entries where the composition fraction of Mg is 149
+            entries = [e for e in entries if e.composition.get("Mg", 0) != 149]
         
         pdia = PhaseDiagram(entries)
         entries = pdia.stable_entries
@@ -411,9 +414,9 @@ class ternary_interpolation:
         def process_system(sys_name, i, invert=False):
             params = self.L_dict[sys_name]
             print(params, sys_name, invert)
-            sys = BinaryLiquid.from_cache(sys_name, params=params, param_format=self.param_format)
+            sys = BinaryLiquid.from_cache("-".join(sorted(sys_name.split('-'))), params=params, param_format=self.param_format, pd_ind=0)
             data = sys.update_phase_points()
-            figr = sys.hsx.plot_tx()
+            figr = sys.hsx.plot_tx(digitized_liquidus=sys.digitized_liq)
             bin_fig_list.append(figr)
             
 
@@ -433,222 +436,6 @@ class ternary_interpolation:
         self.hsx_df = self.hsx_df.drop_duplicates()
         self.hsx_df = self.hsx_df.reset_index(drop=True)
 
-
-class ternary_hsx_plotter(ternary_interpolation):
-    def __init__(self, tern_sys: List[str], direct: str, **kwargs):
-        delta = kwargs.get('delta', 0.025)
-        interp_type = kwargs.get('interp_type', 'linear')
-        param_format = kwargs.get('param_format', 'linear')
-        L_tern = kwargs.get('L_tern', [0, 0])  # ternary interaction parameters (H, S)
-        L_dict = kwargs.get('L_dict', {})  # binary interaction parameters
-        super().__init__(tern_sys,direct, interp_type=interp_type, param_format=param_format, delta=delta, L_tern=L_tern, L_dict=L_dict)
-        self.temp_slider = kwargs.get('temp_slider', [0, 0])
-
-    def init_sys(self):
-        self.tern_sys_name = '-'.join(sorted(self.tern_sys))
-        self.phases = self.hsx_df['Phase Name'].unique().tolist()
-
-        solid_phases = self.phases.copy()
-        solid_phases.remove('L')
-        # Generate a random color array with at least 100 options
-        def random_color():
-            return f"#{random.randint(0, 0xFFFFFF):06x}"
-        color_array = [random_color() for _ in range(100)]
-        self.color_map = dict(zip(solid_phases, color_array))
-        self.color_map['L'] = 'cornflowerblue'
-
-        fusion_temp = pd.read_json(os.path.join(fusion_temps_file), typ='series')
-        tern_temp = fusion_temp[self.tern_sys].values 
-        max_temp = np.max(tern_temp) + 500
-        min_temp = np.min(tern_temp)
-        self.conds = [np.min(np.array([0, min_temp - 200])), max_temp + self.temp_slider[1]]
-        self.hsx_df['x0'] = self.hsx_df['x0'].round(4)
-        self.hsx_df['x1'] = self.hsx_df['x1'].round(4)
-        self.hsx_df = self.hsx_df.rename(columns={'Phase Name': 'Phase'})
-        self.hsx_df['Colors'] = self.hsx_df['Phase'].map(self.color_map)
-        print('Initialization complete')
-
-    def lower_convexhull(self):
-        start_time = time.time()
-        self.points = np.array(self.hsx_df[['x0', 'x1', 'S', 'H']])
-        self.simplices = gliq_lowerhull3(self.points, vertical_simplices=True)
-        # self.simplices = direct_lowerhull(self.points)
-        self.temps = gen_hyperplane_eqns2(points = self.points, lower_hull = self.simplices, partial_indices = [2])[1]
-        nan_indices = []
-        for i in range(len(self.temps)):
-            if str(self.temps[i]) == 'nan' or str(self.temps[i]) == 'inf' or str(self.temps[i]) == '-inf':
-                nan_indices.append(i)
-
-        self.temps = np.delete(self.temps, nan_indices)
-        self.simplices = np.delete(self.simplices, nan_indices, axis=0)
-        end_time = time.time()
-        print(f"Convex hull and partial derivative evaluation time:: {end_time - start_time} seconds")
-
-    def process_data(self):
-        self.init_sys()
-        self.lower_convexhull()
-        phase_equil = []
-        for simplex in self.simplices:
-            phase1 = self.hsx_df.loc[simplex[0], 'Phase']
-            phase2 = self.hsx_df.loc[simplex[1], 'Phase']
-            phase3 = self.hsx_df.loc[simplex[2], 'Phase']
-            phase4 = self.hsx_df.loc[simplex[3], 'Phase']
-            phase_equil.append(np.array([phase1, phase2, phase3, phase4]))
-
-        data = []
-        for i, simplex in enumerate(self.simplices):
-            phase_labels = phase_equil[i]
-            if len(set(phase_labels)) == 0:
-                continue
-            else:
-                x0_coords = [self.points[vertex][0] for vertex in simplex] 
-                x1_coords = [self.points[vertex][1] for vertex in simplex]
-                t_val = self.temps[i]
-
-            j = 0
-            for x0, x1 in zip(x0_coords, x1_coords):
-                label = phase_labels[j]
-                color = self.color_map[label]
-                data.append([x0, x1, t_val, label, color])
-                j += 1
-
-        self.equil_df = pd.DataFrame(data, columns=['x0', 'x1', 't', 'label', 'color'])
-        self.equil_df = self.equil_df.dropna(subset=['t'])
-        self.equil_df['t'] = self.equil_df['t'] - 273.15
-        self.equil_df = cartesian_to_ternary(self.equil_df)
-        self.equil_liq_df = self.equil_df[self.equil_df['label'] == 'L']
-        self.equil_solid_df = self.equil_df[self.equil_df['label'] != 'L']
-        self.equil_solid_df = self.equil_solid_df.sort_values('t').drop_duplicates(subset=['x0', 'x1'], keep='last')
-
-        for index, row in self.equil_solid_df.iterrows():
-            x0 = row['x0']
-            x1 = row['x1']
-            label = row['label']
-            color = row['color']
-            new_row = {'x0': x0, 'x1': x1, 't': self.conds[0], 'label': label, 'color': color}
-            new_row_df = pd.DataFrame([new_row])
-            self.equil_solid_df = pd.concat([self.equil_solid_df, new_row_df])
-
-        self.equil_liq_df = self.equil_liq_df.sort_values('t').drop_duplicates(subset=['x0', 'x1'], keep='first')
-        self.equil_df = pd.concat([self.equil_solid_df, self.equil_liq_df])        
-        
-    def plot_ternary(self):
-        fig = go.Figure()
-
-        scatter = go.Scatter3d(
-            x = self.equil_liq_df['x0'], y = self.equil_liq_df['x1'], z = self.equil_liq_df['t'],
-            mode = 'markers', marker = dict(size = 5, color = self.equil_liq_df['color']),
-            showlegend=False, opacity = 1,
-        )
-
-        solid_points = np.array(list(zip(self.equil_solid_df['x0'], self.equil_solid_df['x1'], self.equil_solid_df['t'])))
-        liq_points = np.array(list(zip(self.equil_liq_df['x0'], self.equil_liq_df['x1'], self.equil_liq_df['t'])))
-        cart_liq_points = [ternary_to_cartesian(point[0], point[1]) for point in liq_points]
-        triangulation = Delaunay(cart_liq_points)
-        triangles = triangulation.simplices
-
-        # identify outlier points
-        # try:
-        #     is_outlier = find_outliers_by_local_stats(liq_points, triangulation)
-        #     liq_points = liq_points[~is_outlier]
-        # except Exception as e:
-        #     print('Outlier detection error:', e)
-
-        try:
-            for point in solid_points:
-                height = point_to_surface_height(point, liq_points, triangulation, triangles)[0]
-                if height > 10:
-                    new_row = {'x0': point[0], 'x1': point[1], 't': point[2] + 3, 'label': 'L', 'color': 'cornflowerblue'}
-                    new_row_df = pd.DataFrame([new_row])
-                    self.equil_liq_df = pd.concat([self.equil_liq_df, new_row_df])
-        except Exception as e:
-            print('Solid meshing error:', e)
-
-        liq_points = np.array(list(zip(self.equil_liq_df['x0'], self.equil_liq_df['x1'], self.equil_liq_df['t'])))     
-        cart_liq_points = [ternary_to_cartesian(point[0], point[1]) for point in liq_points]
-        triangulation = Delaunay(cart_liq_points)
-        triangles = triangulation.simplices
-
-        fig.add_trace(go.Mesh3d(
-            x = self.equil_liq_df['x0'], y = self.equil_liq_df['x1'], z = self.equil_liq_df['t'],
-            i = triangles[:, 0], j = triangles[:, 1], k = triangles[:, 2],
-            opacity = 0.7, colorscale = 'Viridis', intensity = self.equil_liq_df['t'],
-            showscale = False,
-        ))
-        
-
-        for label, group in self.equil_solid_df.groupby('label'):
-            fig.add_trace(go.Scatter3d(
-                x = group['x0'], y = group['x1'], z = group['t'],
-                mode = 'lines', line = dict(color = group['color'], width = 10),
-                showlegend = False, opacity = 1,
-            ))
-
-        fig.add_trace(go.Scatter3d(
-            x=[0, 0.5, 1, 0],
-            y=[0, np.sqrt(3)/2, 0, 0],
-            z=[self.conds[0], self.conds[0], self.conds[0], self.conds[0]],
-            mode='lines',
-            line=dict(color='black', width=5),
-            name = 'axes',
-            showlegend=False
-        ))
-
-        fig.add_trace(go.Scatter3d(
-            x=[-0.02, 0.48, 0.98, -0.02],
-            y=[0.02, np.sqrt(3)/2 + 0.02, .02, .02],
-            z=[self.conds[0] - 50, self.conds[0] - 50, self.conds[0]- 50, self.conds[0] - 50],
-            mode='text',
-            text=[f'<b>{self.tern_sys[0]}</b>', f'<b>{self.tern_sys[2]}</b>', f'<b>{self.tern_sys[1]}</b>'],
-            textposition='top center',
-            showlegend=False,
-            textfont=dict(size=12)
-        ))
-
-        legend_elements = []
-        for name, color in self.color_map.items():
-            legend_elements.append(dict(
-                x=0, y=0, z=0, xref='paper', yref='paper', zref='paper',
-                text = name, marker = dict(color = color),
-            ))
-        for entry in legend_elements:
-            fig.add_trace(go.Scatter3d(
-            x=[None], y=[None], z=[None], mode='lines+text',
-            marker=dict(color=entry['marker']['color']),
-            name=entry['text'],
-            textfont=dict(size=8)  # Adjust the font size here
-            ))
-        
-        fig.update_layout(
-            legend=dict(
-                x=0.95, y=0.95, xanchor='left', yanchor='top'    
-            ),
-            autosize = True,
-            margin = dict(l = 50, r = 50, b = 50, t = 50),
-            scene=dict(
-                zaxis = dict(range=[self.conds[0] - 50 - self.temp_slider[0], self.conds[1] + self.temp_slider[1]],
-                            title='Temperature (C)'), 
-                xaxis = dict(title=' ',
-                        showticklabels=False,
-                        showaxeslabels=False,
-                        showgrid=False,
-                ),
-                yaxis = dict(title=' ',
-                        showticklabels=False,
-                        showaxeslabels=False,
-                        showgrid=False,
-                ),
-                xaxis_visible=True,
-                yaxis_visible=True,
-                zaxis_visible=True,
-                bgcolor='white',
-                camera=dict(
-                    projection=dict(type='orthographic'),         
-                )
-            )
-        )
-
-        return fig
 
 
 class ternary_gtx_plotter(ternary_interpolation):
@@ -888,7 +675,7 @@ class ternary_gtx_plotter(ternary_interpolation):
         #     y=[0.02, np.sqrt(3)/2 + 0.02, .02, .02],
         #     z=[self.conds[0] - 50, self.conds[0] - 50, self.conds[0]- 50, self.conds[0] - 50],
         #     mode='text',
-        #     text=[f'<b>{self.tern_sys[0]}</b>', f'<b>{self.tern_sys[2]}</b>', f'<b>{self.tern_sys[1]}</b>'],
+        #     text=[f'<b>{self.tern_sys[0]}</b>', f'<b>{self.tern_sys[1]}</b>', f'<b>{self.tern_sys[2]}</b>'],
         #     textposition='top center',
         #     showlegend=False,
         #     textfont=dict(size=12)

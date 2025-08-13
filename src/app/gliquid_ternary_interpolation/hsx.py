@@ -477,10 +477,10 @@ class HSX:
         )
         fig.add_annotation(
             x=-0.05,
-            y=-0.10,  # Position below the x-axis in paper coordinates
+            y=-0.23,  # Position below the x-axis in paper coordinates
             xref="paper",
             yref="paper",
-            text=self.comps[0], # Use the component name from the data
+            text=f"<b>{self.comps[0]}</b>",  # Make the component name bold
             showarrow=False,
             font=dict(color="black", size=13),
             xanchor='left',
@@ -488,10 +488,10 @@ class HSX:
         )
         fig.add_annotation(
             x=1.05,
-            y=-0.10, # Position below the x-axis in paper coordinates
+            y=-0.23, # Position below the x-axis in paper coordinates
             xref="paper",
             yref="paper",
-            text=self.comps[1], # Use the component name from the data
+            text=f"<b>{self.comps[1]}</b>",  # Make the component name bold
             showarrow=False,
             font=dict(color="black", size=13),
             xanchor='right',

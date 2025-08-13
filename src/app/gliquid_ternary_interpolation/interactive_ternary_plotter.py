@@ -64,8 +64,8 @@ def create_gliqtern_app(requests_pathname_prefix):
         plotter.interpolate()
         plotter.process_data()
 
-        sub_width = 400
-        sub_height = 280
+        sub_width = 420
+        sub_height = 350
         tern_width = 900
         tern_height = 1000
         # Generate the plots
@@ -97,7 +97,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                     html.P(html.B("Usage Instructions:"), style={'fontSize': '14px'}),
                     html.P("Specify the system and select the interpolation type to generate the ternary and corresponding binary phase diagrams.", style={'fontSize': '14px'}),
                     html.Label("System: ", style={'fontSize': '14px'}),
-                    dcc.Input(id='text-input', type='text', value='', placeholder="(e.g., Bi-Cd-Sn)", style={'fontSize': '14px'}),
+                    dcc.Input(id='text-input', type='text', value='', placeholder="e.g., Bi-Cd-Sn", style={'fontSize': '14px'}),
                     html.Br(),
                     html.Br(),
                     html.P("For some systems, the default temperature range may not capture the entire liquidus. Manually input values to the temperature slider to decrement or increment the lower and upper temperature bounds", style={'fontSize': '14px'}),
@@ -107,6 +107,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                     html.Br(),
                     html.Label("Decrement Lower Bound:", style={'fontSize': '14px'}),
                     dcc.Input(id='lower_increment', type='number', value=0.0, style={'fontSize': '14px'}),
+                    html.Br(),
                     html.Br(),
                     html.Button('Generate Plot', id='submit-val', n_clicks=0),
                     html.Div(id='loading-message', children="Enter input and click 'Generate Plot' to see the result."),

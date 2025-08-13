@@ -204,10 +204,14 @@ def load_mpds_data(input, pd_ind=0) -> tuple[dict, dict, list[list] | None]:
         print(f"{comp}: H_fusion = {data[0]} J/mol, T_fusion = {data[1]} K, T_vaporization = {data[2]} K")
 
     if config.dir_structure == 'nested':
+        print("DEBUG NESTED!")
         sys_dir = os.path.join(config.data_dir, sys_name)
+        print(sys_dir)
         os.makedirs(sys_dir, exist_ok=True)
     elif config.dir_structure == 'flat':
+        print("DEBUG FLAT!")
         sys_dir = config.data_dir
+        print(sys_dir)
     else:
         raise ValueError(f"Invalid dir_structure '{config.dir_structure}'. Must be 'nested' or 'flat'.")
     
@@ -215,17 +219,22 @@ def load_mpds_data(input, pd_ind=0) -> tuple[dict, dict, list[list] | None]:
         sys_file = os.path.join(sys_dir, f"{sys_name}.json")
     elif isinstance(pd_ind, int):
         sys_file = os.path.join(sys_dir, f"{sys_name}_MPDS_PD_{pd_ind}.json")
+        print(sys_file)
         if not os.path.exists(sys_file) and os.path.exists(os.path.join(sys_dir, f"{sys_name}_MPDS_PD_0.json")):
             raise ValueError(f"No matching json with pd_ind={pd_ind} found in cache!")
     else:
         raise ValueError("Input for pd_ind must be an integer or 'None'!")
     
     if os.path.exists(sys_file): # Load from cache
+        print("DEBUG SYS")
+        print(sys_file)
+        print(sys_dir)
         with open(sys_file, 'r') as f:
             mpds_json = json.load(f)
             if mpds_json.get('reference', None) is not None:
                 print("\nReading MPDS json from entry at " + mpds_json['reference']['entry'] + "...\n")
     else: # Try API call
+        print("GAGA")
         print("\nNo cached binary phase data found!")
         mpds_api_key = os.getenv('MPDS_API_KEY')
         mpds_json = {"reference": None}
