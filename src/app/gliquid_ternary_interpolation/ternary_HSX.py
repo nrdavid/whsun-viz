@@ -226,6 +226,7 @@ class ternary_interpolation:
         self.tern_comp = generate_comp_grid(self.delta)
         self.interp_type = kwargs.get('interp_type', 'linear')  # default to linear interpolation
         self.param_format = kwargs.get('param_format', 'linear')
+        self.fit_or_pred = kwargs.get('fit_or_pred', {})  # dict of 'fit' or 'pred' for each binary system
         self.L_dict = kwargs.get('L_dict', {}) # adding functionality to pass in a dict of L parameters on construction
         self.L_tern = kwargs.get('L_tern', [0, 0])  # ternary interaction parameters (H, S)
     
@@ -411,18 +412,20 @@ class ternary_interpolation:
     def add_binary_data(self):
         # add binary data to the ternary data and plot the binaries (optional)
         bin_fig_list = []
-        def process_system(sys_name, i, invert=False):
+        def process_system(sys_name):
             params = self.L_dict[sys_name]
-            print(params, sys_name, invert)
             sys = BinaryLiquid.from_cache("-".join(sorted(sys_name.split('-'))), params=params, param_format=self.param_format, pd_ind=0)
             data = sys.update_phase_points()
-            figr = sys.hsx.plot_tx(digitized_liquidus=sys.digitized_liq)
+            fit_type = self.fit_or_pred[sys_name] 
+            if fit_type == 'fit':
+                figr = sys.hsx.plot_tx(digitized_liquidus=sys.digitized_liq)
+            else:
+                figr = sys.hsx.plot_tx(pred=True)
             bin_fig_list.append(figr)
             
 
-        i = 0 
         for sys_name in self.L_dict.keys():
-            process_system(sys_name, i, invert=sorted(sys_name.split('-')) != sys_name.split('-'))
+            process_system(sys_name)
 
         return bin_fig_list
         
@@ -445,7 +448,8 @@ class ternary_gtx_plotter(ternary_interpolation):
         param_format = kwargs.get('param_format', 'linear')
         L_tern = kwargs.get('L_tern', [0, 0])  # ternary interaction parameters (H, S)
         L_dict = kwargs.get('L_dict', {})  # binary interaction parameters
-        super().__init__(tern_sys,direct, interp_type=interp_type, param_format=param_format, delta=delta, L_tern=L_tern, L_dict=L_dict)
+        fit_or_pred = kwargs.get('fit_or_pred', {})  # dict of 'fit' or 'pred' for each binary system
+        super().__init__(tern_sys,direct, interp_type=interp_type, param_format=param_format, delta=delta, L_tern=L_tern, L_dict=L_dict, fit_or_pred=fit_or_pred)
         self.temp_slider = kwargs.get('temp_slider', [0, 0])  # temperature slider for the plot
         self.T_incr = kwargs.get('T_incr', 10)  # temperature increment for the grid
 

@@ -37,18 +37,28 @@ def create_gliqtern_app(requests_pathname_prefix):
         print(f"Generating plot for: {text_input} with interpolation type: {interp_type}")
         temp_slider = [lower_increment, upper_increment]
         binary_param_df = pd.read_excel(dir + "multi_fit_no1S_nmae_lt_0.5.xlsx")
+        binary_param_pred_df = pd.read_excel(dir + "v17_comb1S_tau10k_predictions_rf_optimized.xlsx")
         binary_sys_labels = [
             f"{text_input[0]}-{text_input[1]}", f"{text_input[1]}-{text_input[2]}", f"{text_input[2]}-{text_input[0]}"
         ]
         print("Binary System Labels: ", binary_sys_labels)
         binary_L_dict = {}
+        fitorpred = {}
         for bin_sys in binary_sys_labels:
             flipped_sys = "-".join(sorted(bin_sys.split('-')))
 
             if bin_sys in binary_param_df['system'].tolist():
                 params = binary_param_df[binary_param_df['system'] == bin_sys].iloc[0]
+                fitorpred[bin_sys] = "fit"
             elif flipped_sys in binary_param_df['system'].tolist():
                 params = binary_param_df[binary_param_df['system'] == flipped_sys].iloc[0]
+                fitorpred[bin_sys] = "fit"
+            elif bin_sys in binary_param_pred_df['system'].tolist():
+                params = binary_param_pred_df[binary_param_pred_df['system'] == bin_sys].iloc[0]
+                fitorpred[bin_sys] = "pred"
+            elif flipped_sys in binary_param_pred_df['system'].tolist():
+                params = binary_param_pred_df[binary_param_pred_df['system'] == flipped_sys].iloc[0]
+                fitorpred[bin_sys] = "pred"
             else:
                 raise ValueError(f"Binary system {bin_sys} not found in the parameter dataframe.")
 
@@ -59,8 +69,9 @@ def create_gliqtern_app(requests_pathname_prefix):
                 float(params["L1_b"])
             ]
             
+        print(fitorpred)
         print("Binary Interaction Parameters: ", binary_L_dict)
-        plotter = ternary_gtx_plotter(text_input, dir, interp_type=interp_type, param_format=param_format, L_dict=binary_L_dict, temp_slider=temp_slider, T_incr=5.0, delta = 0.025)
+        plotter = ternary_gtx_plotter(text_input, dir, interp_type=interp_type, param_format=param_format, L_dict=binary_L_dict, temp_slider=temp_slider, T_incr=5.0, delta = 0.025, fit_or_pred=fitorpred)
         plotter.interpolate()
         plotter.process_data()
 
