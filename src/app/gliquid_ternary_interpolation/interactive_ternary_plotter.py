@@ -19,6 +19,43 @@ def create_gliqtern_app(requests_pathname_prefix):
     gliq_app = flask.Flask(__name__)
     app = dash.Dash(__name__, server=gliq_app, requests_pathname_prefix=requests_pathname_prefix)
 
+    # Add CSS for loading animations
+    app.index_string = '''
+    <!DOCTYPE html>
+    <html>
+        <head>
+            {%metas%}
+            <title>{%title%}</title>
+            {%favicon%}
+            {%css%}
+            <style>
+                .loading-spinner {
+                    display: inline-block;
+                    width: 12px;
+                    height: 12px;
+                    border: 2px solid #f3f3f3;
+                    border-top: 2px solid #3498db;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                }
+                
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            </style>
+        </head>
+        <body>
+            {%app_entry%}
+            <footer>
+                {%config%}
+                {%scripts%}
+                {%renderer%}
+            </footer>
+        </body>
+    </html>
+    '''
+
     interp_type = 'linear'  # Default interpolation type
     param_format = 'combined'
 
@@ -30,6 +67,7 @@ def create_gliqtern_app(requests_pathname_prefix):
     plot_ready = False
     error_occurred = False
     error_message = ""
+    button_clicked = False
 
     def generate_plot(text_input, upper_increment, lower_increment):
         nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready, error_occurred, error_message
@@ -208,19 +246,27 @@ def create_gliqtern_app(requests_pathname_prefix):
         [State('text-input', 'value'), State('upper_increment', 'value'), State('lower_increment', 'value')]
     )
     def trigger_and_update_plot(n_clicks, n_intervals, text_input, upper_increment, lower_increment):
-        nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready, error_occurred, error_message
+        nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready, error_occurred, error_message, button_clicked
 
         # Identify what triggered the callback
         ctx = dash.callback_context
 
         # If the button is clicked, start generating the plot in a separate thread
         if ctx.triggered and 'submit-val' in ctx.triggered[0]['prop_id']:
+            button_clicked = True
             plot_ready = False
             error_occurred = False
             error_message = ""
             thread = threading.Thread(target=generate_plot, args=(text_input, upper_increment, lower_increment))
             thread.start()
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Takes up to 2 minutes to generate plot...", False
+            
+            # Create animated loading message
+            loading_message = html.Div([
+                html.Span("Takes up to 2 minutes to generate plot"),
+                html.Div(className="loading-spinner", style={'marginLeft': '8px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'fontSize': '14px'})
+            
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, loading_message, False
 
         # If the interval triggered the callback, check if the plot is ready
         if plot_ready:
@@ -229,11 +275,19 @@ def create_gliqtern_app(requests_pathname_prefix):
                 empty_fig = go.Figure()
                 return empty_fig, empty_fig, empty_fig, empty_fig, error_message, True
             else:
-                # Return successful plots
+                # Return successful plots and clear message
                 return ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, "", True
 
-        # While waiting, do not update the plot, keep the interval running
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Takes up to 2 minutes to generate plot...", False
+        # While waiting, show loading animation only if button was clicked
+        if button_clicked:
+            loading_message = html.Div([
+                html.Span("Takes up to 2 minutes to generate plot"),
+                html.Div(className="loading-spinner", style={'marginLeft': '8px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'fontSize': '14px'})
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, loading_message, False
+        else:
+            # Initial state - no loading message
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Enter input and click 'Generate Plot' to see the result.", False
 
     return app
 
