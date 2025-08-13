@@ -12,11 +12,15 @@ import plotly.graph_objects as go
 import threading
 import flask
 from gliquid_ternary_interpolation.ternary_HSX import ternary_gtx_plotter
+import pandas as pd
 # from ternary_HSX import ternary_hsx_plotter
 
 def create_gliqtern_app(requests_pathname_prefix):
     gliq_app = flask.Flask(__name__)
     app = dash.Dash(__name__, server=gliq_app, requests_pathname_prefix=requests_pathname_prefix)
+
+    interp_type = 'linear'  # Default interpolation type
+    param_format = 'combined'
 
     # Global variables to store figures and readiness
     ternary_plot = go.Figure()
@@ -25,13 +29,38 @@ def create_gliqtern_app(requests_pathname_prefix):
     binary_plot_3 = go.Figure()
     plot_ready = False
 
-    def generate_plot(text_input, interp_type, upper_increment, lower_increment):
+    def generate_plot(text_input, upper_increment, lower_increment):
         nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready
         dir = "gliquid_ternary_interpolation/matrix_data_jsons/"
         text_input = text_input.split('-')
+        text_input = sorted(text_input)
         print(f"Generating plot for: {text_input} with interpolation type: {interp_type}")
         temp_slider = [lower_increment, upper_increment]
-        plotter = ternary_gtx_plotter(text_input, dir, interp_type, temp_slider=temp_slider)
+        binary_param_df = pd.read_excel(dir + "multi_fit_no1S_nmae_lt_0.5.xlsx")
+        binary_sys_labels = [
+            f"{text_input[0]}-{text_input[1]}", f"{text_input[1]}-{text_input[2]}", f"{text_input[2]}-{text_input[0]}"
+        ]
+        print("Binary System Labels: ", binary_sys_labels)
+        binary_L_dict = {}
+        for bin_sys in binary_sys_labels:
+            flipped_sys = "-".join(sorted(bin_sys.split('-')))
+
+            if bin_sys in binary_param_df['system'].tolist():
+                params = binary_param_df[binary_param_df['system'] == bin_sys].iloc[0]
+            elif flipped_sys in binary_param_df['system'].tolist():
+                params = binary_param_df[binary_param_df['system'] == flipped_sys].iloc[0]
+            else:
+                raise ValueError(f"Binary system {bin_sys} not found in the parameter dataframe.")
+
+            binary_L_dict[bin_sys] = [
+                float(params["L0_a"]),
+                float(params["L0_b"]),
+                float(params["L1_a"]),
+                float(params["L1_b"])
+            ]
+            
+        print("Binary Interaction Parameters: ", binary_L_dict)
+        plotter = ternary_gtx_plotter(text_input, dir, interp_type=interp_type, param_format=param_format, L_dict=binary_L_dict, temp_slider=temp_slider, T_incr=5.0, delta = 0.025)
         plotter.interpolate()
         plotter.process_data()
 
@@ -78,20 +107,6 @@ def create_gliqtern_app(requests_pathname_prefix):
                     html.Br(),
                     html.Label("Decrement Lower Bound:", style={'fontSize': '14px'}),
                     dcc.Input(id='lower_increment', type='number', value=0.0, style={'fontSize': '14px'}),
-                    html.Br(),
-                    html.Br(),
-                    html.Label("Interpolation Type:", style={'fontSize': '14px'}),
-                    dcc.Dropdown(
-                        id='interp-type-dropdown',
-                        options=[
-                            {'label': 'Linear', 'value': 'linear'},
-                            {'label': 'Muggianu', 'value': 'muggianu'},
-                            {'label': 'Kohler', 'value': 'kohler'},
-                            {'label': 'Luck-Chou', 'value': 'luck_chou'}
-                        ],
-                        value='linear',
-                        placeholder="Select interpolation type", style={'fontSize': '14px'}
-                    ),
                     html.Br(),
                     html.Button('Generate Plot', id='submit-val', n_clicks=0),
                     html.Div(id='loading-message', children="Enter input and click 'Generate Plot' to see the result."),
@@ -164,9 +179,9 @@ def create_gliqtern_app(requests_pathname_prefix):
             Output('interval-component', 'disabled')],
         [Input('submit-val', 'n_clicks'),
             Input('interval-component', 'n_intervals')],
-        [State('text-input', 'value'), State('interp-type-dropdown', 'value'), State('upper_increment', 'value'), State('lower_increment', 'value')]
+        [State('text-input', 'value'), State('upper_increment', 'value'), State('lower_increment', 'value')]
     )
-    def trigger_and_update_plot(n_clicks, n_intervals, text_input, interp_type, upper_increment, lower_increment):
+    def trigger_and_update_plot(n_clicks, n_intervals, text_input, upper_increment, lower_increment):
         nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready
 
         # Identify what triggered the callback
@@ -175,7 +190,7 @@ def create_gliqtern_app(requests_pathname_prefix):
         # If the button is clicked, start generating the plot in a separate thread
         if ctx.triggered and 'submit-val' in ctx.triggered[0]['prop_id']:
             plot_ready = False
-            thread = threading.Thread(target=generate_plot, args=(text_input, interp_type, upper_increment, lower_increment))
+            thread = threading.Thread(target=generate_plot, args=(text_input, upper_increment, lower_increment))
             thread.start()
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Takes up to 2 minutes to generate plot...", False
 
