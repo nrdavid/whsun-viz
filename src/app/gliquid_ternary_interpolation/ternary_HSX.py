@@ -540,6 +540,152 @@ class ternary_gtx_plotter(ternary_interpolation):
         end_time = time.time()
         print(f"Lower hull evaluation and post processing time:: {end_time - start_time} seconds for temperature increment of {self.T_incr}")
 
+    def _add_isothermal_lines(self, fig, liq_points, triangles):
+        """
+        Add iso-temperature contour lines to the 3D liquidus surface.
+        
+        Args:
+            fig: Plotly figure object
+            liq_points: Array of liquid points (x0, x1, T)
+            triangles: Triangle indices for the mesh
+        """
+        # Get temperature range
+        temps = liq_points[:, 2]
+        temp_min, temp_max = np.min(temps), np.max(temps)
+        temp_range = temp_max - temp_min
+        
+        # Choose appropriate delta_T based on range
+        if temp_range <= 10:
+            delta_T = 1.0
+        elif temp_range <= 25:
+            delta_T = 2.0
+        elif temp_range <= 50:
+            delta_T = 2.5
+        elif temp_range <= 100:
+            delta_T = 5
+        elif temp_range <= 200:
+            delta_T = 10
+        else:
+            delta_T = max(10, temp_range / 20)
+        
+        # Generate iso-temperature values
+        iso_temps = np.arange(
+            temp_min + delta_T, 
+            temp_max, 
+            delta_T
+        )
+        
+        # For each iso-temperature, find intersection lines with triangles
+        for iso_temp in iso_temps:
+            line_segments = []
+            
+            for triangle in triangles:
+                # Get the three vertices of the triangle
+                v1 = liq_points[triangle[0]]
+                v2 = liq_points[triangle[1]]
+                v3 = liq_points[triangle[2]]
+                
+                # Find intersections of the iso-temperature plane with triangle edges
+                intersections = []
+                
+                # Check each edge of the triangle
+                edges = [(v1, v2), (v2, v3), (v3, v1)]
+                for p1, p2 in edges:
+                    # Check if iso_temp is between the temperatures of the edge endpoints
+                    t1, t2 = p1[2], p2[2]
+                    if (t1 <= iso_temp <= t2) or (t2 <= iso_temp <= t1):
+                        if abs(t2 - t1) > 1e-8:  # More strict tolerance for flatter surfaces
+                            # Linear interpolation to find intersection point
+                            alpha = (iso_temp - t1) / (t2 - t1)
+                            intersection = p1 + alpha * (p2 - p1)
+                            intersection[2] = iso_temp  # Ensure exact temperature
+                            intersections.append(intersection)
+                
+                # If we have exactly 2 intersections, we have a line segment
+                if len(intersections) == 2:
+                    line_segments.append(intersections)
+            
+            # Connect line segments into continuous contours
+            if line_segments:
+                connected_contours = self._connect_line_segments(line_segments)
+                
+                # Add each connected contour as a separate trace
+                for contour in connected_contours:
+                    if len(contour) >= 2:  # Only plot if we have at least 2 points
+                        x_coords = [point[0] for point in contour]
+                        y_coords = [point[1] for point in contour]
+                        z_coords = [point[2] for point in contour]
+                        
+                        fig.add_trace(go.Scatter3d(
+                            x=x_coords,
+                            y=y_coords,
+                            z=z_coords,
+                            mode='lines',
+                            line=dict(color='white', width=2),
+                            showlegend=False,
+                            hoverinfo='skip'
+                        ))
+    
+    def _connect_line_segments(self, segments, tolerance=1e-4):
+        """
+        Connect line segments into continuous contours.
+        
+        Args:
+            segments: List of line segments, each segment is [point1, point2]
+            tolerance: Distance tolerance for connecting endpoints
+            
+        Returns:
+            List of connected contours, each contour is a list of points
+        """
+        if not segments:
+            return []
+        
+        contours = []
+        remaining_segments = segments.copy()
+        
+        while remaining_segments:
+            # Start a new contour with the first remaining segment
+            current_contour = list(remaining_segments.pop(0))
+            
+            # Keep trying to extend the contour
+            extended = True
+            while extended and remaining_segments:
+                extended = False
+                
+                # Try to find a segment that connects to either end of current contour
+                for i, segment in enumerate(remaining_segments):
+                    p1, p2 = segment[0], segment[1]
+                    
+                    # Check if segment connects to the end of current contour
+                    end_point = current_contour[-1]
+                    if np.linalg.norm(p1[:2] - end_point[:2]) < tolerance:
+                        current_contour.append(p2)
+                        remaining_segments.pop(i)
+                        extended = True
+                        break
+                    elif np.linalg.norm(p2[:2] - end_point[:2]) < tolerance:
+                        current_contour.append(p1)
+                        remaining_segments.pop(i)
+                        extended = True
+                        break
+                    
+                    # Check if segment connects to the beginning of current contour
+                    start_point = current_contour[0]
+                    if np.linalg.norm(p1[:2] - start_point[:2]) < tolerance:
+                        current_contour.insert(0, p2)
+                        remaining_segments.pop(i)
+                        extended = True
+                        break
+                    elif np.linalg.norm(p2[:2] - start_point[:2]) < tolerance:
+                        current_contour.insert(0, p1)
+                        remaining_segments.pop(i)
+                        extended = True
+                        break
+            
+            contours.append(current_contour)
+        
+        return contours
+
     def plot_ternary(self):
         fig = go.Figure()
 
@@ -654,6 +800,9 @@ class ternary_gtx_plotter(ternary_interpolation):
             showscale = False,
         ))
 
+        # Add iso-temperature lines
+        self._add_isothermal_lines(fig, liq_points, triangles)
+
         for phase, color in self.color_map.items():
             fig.add_trace(go.Scatter3d(
                 x=[None], y=[None], z=[None], mode='markers',
@@ -676,7 +825,7 @@ class ternary_gtx_plotter(ternary_interpolation):
         fig.add_trace(go.Scatter3d(
             x=[-0.02, 0.48, 0.98, -0.02],
             y=[0.02, np.sqrt(3)/2 + 0.02, .02, .02],
-            z=[self.conds[0]-100, self.conds[0]-100, self.conds[0]-100, self.conds[0]-100],
+            z=[self.conds[0]-150, self.conds[0]-150, self.conds[0]-150, self.conds[0]-150],
             mode='text',
             text=[f'<b>{self.tern_sys[0]}</b>', f'<b>{self.tern_sys[2]}</b>', f'<b>{self.tern_sys[1]}</b>'],
             textposition='top center',
