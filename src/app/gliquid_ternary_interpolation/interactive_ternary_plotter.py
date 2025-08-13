@@ -220,7 +220,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                         style={
                             'display': 'flex',
                             'flexDirection': 'row',
-                            'margin-left': '20%',  # Adjust for left panel width
+                            'margin-left': '20%',  # left panel width
                             'boxSizing': 'border-box',
                             'height': '100vh'
                         }

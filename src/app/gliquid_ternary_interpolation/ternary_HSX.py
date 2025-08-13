@@ -532,6 +532,10 @@ class ternary_gtx_plotter(ternary_interpolation):
 
             temp_df = pd.DataFrame(data, columns=['x0', 'x1', 'T', 'Phase', 'Colors', 'simplex_id'])
 
+            # Store original coordinates before transformation
+            temp_df['x0_orig'] = temp_df['x0'].copy()
+            temp_df['x1_orig'] = temp_df['x1'].copy()
+            
             temp_df = cartesian_to_ternary(temp_df)
             temp_df['T'] = temp_df['T'] - 273.15
 
@@ -798,6 +802,13 @@ class ternary_gtx_plotter(ternary_interpolation):
             i = triangles[:, 0], j = triangles[:, 1], k = triangles[:, 2],
             opacity = 0.6, colorscale = 'Viridis', intensity = self.liq_plotting_df['T'],
             showscale = False,
+            hovertemplate = '<b>Liquidus Surface</b><br>' +
+                          f'x_{self.tern_sys[1]}: %{{customdata[0]:.3f}}<br>' +
+                          f'x_{self.tern_sys[2]}: %{{customdata[1]:.3f}}<br>' +
+                          'T: %{z:.1f}°C<br>' +
+                          '<extra></extra>',
+            customdata = np.column_stack((self.liq_plotting_df['x0_orig'], 
+                                        self.liq_plotting_df['x1_orig']))
         ))
 
         # Add iso-temperature lines
