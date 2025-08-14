@@ -163,6 +163,19 @@ def create_gliqtern_app(requests_pathname_prefix):
                     html.Br(),
                     html.Br(),
                     html.P("For some systems, the default temperature range may not capture the entire liquidus. Manually input values to the temperature slider to decrement or increment the lower and upper temperature bounds", style={'fontSize': '14px'}),
+                    html.Br(),
+                    html.Div([
+                        html.Div(style={'width': '10px', 'height': '10px', 'backgroundColor': 'red', 'borderRadius': '50%', 'display': 'inline-block', 'marginRight': '5px'}),
+                        html.Span("ASM binary", style={'fontSize': '12px'})
+                    ], style={'marginBottom': '5px'}),
+                    html.Div([
+                        html.Div(style={'width': '10px', 'height': '10px', 'backgroundColor': 'cornflowerblue', 'borderRadius': '50%', 'display': 'inline-block', 'marginRight': '5px'}),
+                        html.Span("Fitted binary", style={'fontSize': '12px'})
+                    ], style={'marginBottom': '5px'}),
+                    html.Div([
+                        html.Div(style={'width': '10px', 'height': '10px', 'backgroundColor': 'green', 'borderRadius': '50%', 'display': 'inline-block', 'marginRight': '5px'}),
+                        html.Span("Predicted binary", style={'fontSize': '12px'})
+                    ], style={'marginBottom': '5px'}),
                     html.P("Temperature Axis Slider:", style={'fontSize': '14px'}),
                     html.Label("Increment upper bound by:", style={'fontSize': '14px'}),
                     dcc.Input(id='upper_increment', type='number', value=0.0, style={'fontSize': '14px'}),
