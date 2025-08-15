@@ -229,6 +229,7 @@ class ternary_interpolation:
         self.fit_or_pred = kwargs.get('fit_or_pred', {})  # dict of 'fit' or 'pred' for each binary system
         self.L_dict = kwargs.get('L_dict', {}) # adding functionality to pass in a dict of L parameters on construction
         self.L_tern = kwargs.get('L_tern', [0, 0])  # ternary interaction parameters (H, S)
+
     
     def init_ref_data(self):
         # initialize reference data for fusion enthalpies and entropies
