@@ -1,4 +1,3 @@
-
 '''
 Author: Abrar Rauf
 
@@ -23,7 +22,7 @@ def gen_hsx_lowerhull(points):
     # determine the dimensionality of the points
     dim = points.shape[1]
 
-    # initialize bounds for Xi 
+    # initialize bounds for Xi
     x_list = []
     for i in range(dim-1):
         sublist = []
@@ -40,7 +39,7 @@ def gen_hsx_lowerhull(points):
 
     # initialize bounds for S and H
     s_index = dim-2
-    s_data = points[:, s_index]
+    s_data = points[:, s_index] 
     s_min = np.min(s_data) 
     s_max = np.max(s_data)
 
@@ -243,6 +242,8 @@ def gen_hyperplane_eqns(points, lower_hull = [], direct_vertices = False, multip
     # determine the dimensionality of the points
     dim = points.shape[1]
     
+    print(dim)
+
     # extract the vertices of each simplex of the lower hull
     if direct_vertices:
         all_vertices = np.array([points])
@@ -262,6 +263,8 @@ def gen_hyperplane_eqns(points, lower_hull = [], direct_vertices = False, multip
         x.append(smp.Symbol('x{}'.format(i)))
     x = np.array(x)
     x = np.transpose(x)
+
+    print(x)
 
     # initialize array of symbolic variables that represent the coordinates of the vertices
     A = []
@@ -330,21 +333,23 @@ def gen_hyperplane_eqns(points, lower_hull = [], direct_vertices = False, multip
 
     # conver the hyperplane equation to a string
     hyperplane_eqn = str(hyperplane_coeffs)
+    print("hyperplane equation: ", hyperplane_eqn)
 
     # convert the partial derivatives to strings
     partial_formulae = [str(partial) for partial in partial_formulae]
+    print("partial derivatives: ", partial_formulae)
 
     # caching hyperplane equations
     hyperplane_eqn_dict = {}
     if os.path.exists('hyperplane_eqns.json'):
-        with open('gliquid_ternary_interpolation/matrix_data_jsons/hyperplane_eqns.json', 'r') as f:
+        with open('matrix_data_jsons/hyperplane_eqns.json', 'r') as f:
             hyperplane_eqn_dict = json.load(f)
 
     # check if the dim is already in the dict
     if str(dim) not in hyperplane_eqn_dict:
         hyperplane_eqn_dict[str(dim)] = hyperplane_eqn
 
-        with open('gliquid_ternary_interpolation/matrix_data_jsons/hyperplane_eqns.json', 'w') as f:
+        with open('matrix_data_jsons/hyperplane_eqns.json', 'w') as f:
             json.dump(hyperplane_eqn_dict, f)
 
     # caching partial derivatives
@@ -355,7 +360,7 @@ def gen_hyperplane_eqns(points, lower_hull = [], direct_vertices = False, multip
 
     else:
         # create an empty partial derivatives.json file
-        with open('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json', 'w') as f:
+        with open('matrix_data_jsons/partial_derivatives.json', 'w') as f:
             json.dump({}, f)
 
 
@@ -368,7 +373,7 @@ def gen_hyperplane_eqns(points, lower_hull = [], direct_vertices = False, multip
                 ind_dict[str(ind)] = partial
                 partial_derivatives_dict[str(dim)].update(ind_dict)
 
-        with open('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json', 'w') as f:
+        with open('matrix_data_jsons/partial_derivatives.json', 'w') as f:
             json.dump(partial_derivatives_dict, f)
 
     elif str(dim) in partial_derivatives_dict:
@@ -379,7 +384,7 @@ def gen_hyperplane_eqns(points, lower_hull = [], direct_vertices = False, multip
                 ind_dict[str(ind)] = partial
                 partial_derivatives_dict[str(dim)].update(ind_dict)
 
-        with open('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json', 'w') as f:
+        with open('matrix_data_jsons/partial_derivatives.json', 'w') as f:
             json.dump(partial_derivatives_dict, f)
 
 
@@ -510,13 +515,13 @@ def gen_hyperplane_eqns2(points, lower_hull=[], direct_vertices=False, multiplie
     hyperplane_coeffs = coefficients + [remaining_expr]
 
     hyperplane_eqn_dict = {}
-    if os.path.exists('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json'):
-        with open('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json', 'r') as f:
+    if os.path.exists('matrix_data_jsons/partial_derivatives.json'):
+        with open('matrix_data_jsons/partial_derivatives.json', 'r') as f:
             hyperplane_eqn_dict = json.load(f)
 
     partial_derivatives_dict = {}
-    if os.path.exists('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json'):
-        with open('gliquid_ternary_interpolation/matrix_data_jsons/partial_derivatives.json', 'r') as f:
+    if os.path.exists('matrix_data_jsons/partial_derivatives.json'):
+        with open('matrix_data_jsons/partial_derivatives.json', 'r') as f:
             partial_derivatives_dict = json.load(f)
 
     all_hyperplane_eqns = []
@@ -553,6 +558,18 @@ def gen_hyperplane_eqns2(points, lower_hull=[], direct_vertices=False, multiplie
                     all_partial_derivatives.append(partials[0])
 
     return all_hyperplane_eqns, all_partial_derivatives
+
+
+def direct_lowerhull(points):
+    hull = ConvexHull(points)
+    lowerhull = []
+    for eq, simplex in zip(hull.equations, hull.simplices):
+        normal = eq[:-1]
+        if normal[-1] > 0: 
+            lowerhull.append(simplex)
+    
+    return lowerhull
+
 
 
 def gliq_lowerhull(points, liq_points, intermetallics):
