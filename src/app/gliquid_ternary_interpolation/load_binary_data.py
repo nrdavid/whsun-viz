@@ -270,8 +270,8 @@ def load_mpds_data(input, pd_ind=0) -> tuple[dict, dict, list[list] | None]:
         if pd_ind is None:
             mpds_json = valid_jsons[0]
             sys_file = os.path.join(sys_dir, f"{sys_name}.json")
-            with open(sys_file, "w") as f:
-                json.dump(mpds_json, f)
+            # with open(sys_file, "w") as f:
+            #     json.dump(mpds_json, f)
             if mpds_json.get('reference', None) is None:
                 print(f"No valid phase diagrams found, caching default json")
             else:
@@ -279,8 +279,8 @@ def load_mpds_data(input, pd_ind=0) -> tuple[dict, dict, list[list] | None]:
         else:
             for ind, dia_json in enumerate(valid_jsons):
                 sys_file = os.path.join(sys_dir, f"{sys_name}_MPDS_PD_{ind}.json")
-                with open(sys_file, "w") as f:
-                    json.dump(dia_json, f)
+                # with open(sys_file, "w") as f:
+                #     json.dump(dia_json, f)
                 if dia_json.get('reference', None) is None:
                     print(f"No valid phase diagrams found, caching default json")
                     break
@@ -510,8 +510,8 @@ def get_dft_convexhull(input, dft_type='GGA',
         computed_entry_dicts = _get_dft_entries_from_components(components, dft_type)
         if verbose:
             print(f"Caching DFT entry data as {dft_entries_file}...")
-        with open(dft_entries_file, "w") as f:
-            json.dump(computed_entry_dicts, f)
+        # with open(dft_entries_file, "w") as f:
+        #     json.dump(computed_entry_dicts, f)
 
     if any(len(Composition(c).elements) > 1 for c in components):
         pd = CompoundPhaseDiagram(
