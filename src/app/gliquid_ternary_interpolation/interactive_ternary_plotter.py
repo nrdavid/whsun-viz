@@ -13,7 +13,6 @@ import threading
 import flask
 from gliquid_ternary_interpolation.ternary_HSX import ternary_gtx_plotter
 import pandas as pd
-# from ternary_HSX import ternary_hsx_plotter
 
 def create_gliqtern_app(requests_pathname_prefix):
     gliq_app = flask.Flask(__name__)
@@ -56,7 +55,7 @@ def create_gliqtern_app(requests_pathname_prefix):
     </html>
     '''
 
-    interp_type = 'linear'  # Default interpolation type
+    interp_type = 'linear'  
     param_format = 'combined'
 
     # Global variables to store figures and readiness
@@ -120,8 +119,8 @@ def create_gliqtern_app(requests_pathname_prefix):
             plotter.interpolate()
             plotter.process_data()
 
-            sub_width = 350
-            sub_height = 250
+            sub_width = 400
+            sub_height = 300
             tern_width = 700
             tern_height = 900
             # Generate the plots
@@ -143,7 +142,7 @@ def create_gliqtern_app(requests_pathname_prefix):
             print(f"Error occurred during plot generation: {str(e)}")
             error_occurred = True
             error_message = "Invalid or unsupported system, please try again."
-            plot_ready = True  # Set to True so the callback triggers to show the error
+            plot_ready = True  
 
 
     app.layout = html.Div(
@@ -212,23 +211,23 @@ def create_gliqtern_app(requests_pathname_prefix):
                             # Left column for binary plots
                             html.Div(
                                 [
-                                    dcc.Graph(id='binary-plot-1', style={'height': '30vh', 'width': '100%'}),
-                                    dcc.Graph(id='binary-plot-2', style={'height': '30vh', 'width': '100%'}),
-                                    dcc.Graph(id='binary-plot-3', style={'height': '30vh', 'width': '100%'})
+                                    dcc.Graph(id='binary-plot-1', style={'height': '100%', 'width': '100%'}),
+                                    dcc.Graph(id='binary-plot-2', style={'height': '100%', 'width': '100%'}),
+                                    dcc.Graph(id='binary-plot-3', style={'height': '100%', 'width': '100%'})
                                 ],
                                 style={
                                     'display': 'flex',
                                     'flexDirection': 'column',
-                                    'width': '30%',  # Left column width
-                                    'margin-right': '2%'  # Spacing between columns
+                                    'width': '30%', 
+                                    'margin-right': '2%'  
                                 }
                             ),
 
                             # Right column for the ternary plot
                             html.Div(
-                                dcc.Graph(id='ternary-plot', style={'height': '90vh', 'width': '100%'}),
+                                dcc.Graph(id='ternary-plot', style={'height': '100%', 'width': '100%'}),
                                 style={
-                                    'width': '65%',  # Right column width
+                                    'width': '65%', 
                                     'margin-left': 'auto',
                                     'paddingTop': '30px'
                                 }
@@ -237,7 +236,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                         style={
                             'display': 'flex',
                             'flexDirection': 'row',
-                            'margin-left': '20%',  # left panel width
+                            'margin-left': '20%',  
                             'boxSizing': 'border-box',
                             'height': '100vh'
                         }

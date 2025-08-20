@@ -20,7 +20,6 @@ from pymatgen.core.composition import Element, Composition
 from pymatgen.entries.computed_entries import ComputedStructureEntry
 from scipy.spatial import Delaunay
 from copy import deepcopy
-# from auth import key as MAPI_KEY
 
 from gliquid_ternary_interpolation.config import fusion_enthalpies_file, fusion_temps_file
 from gliquid_ternary_interpolation.binary import (
@@ -353,8 +352,8 @@ class ternary_interpolation:
             print("Reading ternary DFT energies from MP")
             entries = mpr.get_entries_in_chemsys(sys)
             sanitized_entries = jsanitize(entries)
-            with open(json_path, 'w') as f:
-                json.dump(sanitized_entries, f)
+            # with open(json_path, 'w') as f:
+            #     json.dump(sanitized_entries, f)
         
         return sanitized_entries
 
