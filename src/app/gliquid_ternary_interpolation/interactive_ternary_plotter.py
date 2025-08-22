@@ -2,7 +2,7 @@
 Author: Abrar Rauf & Joshua Willwerth
 
 This script generates a Dash web app for the G-Liquid Ternary Interpolation project.
-The app allows users to input a ternary system and select an interpolation type to generate the interpolated 
+The app allows users to input a ternary system to generate the interpolated 
 ternary liquidus and corresponding binary phase diagrams. 
 '''
 import dash
