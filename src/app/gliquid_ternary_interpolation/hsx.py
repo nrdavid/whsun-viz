@@ -126,7 +126,7 @@ class HSX:
         self.df_tx['t'] = self.df_tx['t'] - 273.15
 
         # Option 2: Save the DataFrame to an Excel file
-        self.df_tx.to_excel("tx_data.xlsx", index=False) # saves to an excel file in the same directory
+        # self.df_tx.to_excel("tx_data.xlsx", index=False) # saves to an excel file in the same directory
         # Create a scatter plot using Plotly Express
         fig = px.scatter(self.df_tx, x='x', y='t', color='label',
                          color_discrete_map=self.phase_color_remap,
