@@ -207,7 +207,8 @@ def load_mpds_data(input, pd_ind=0) -> tuple[dict, dict, list[list] | None]:
         print("DEBUG NESTED!")
         sys_dir = os.path.join(config.data_dir, sys_name)
         print(sys_dir)
-        os.makedirs(sys_dir, exist_ok=True)
+        # Commented out for server deployment - no file writing allowed
+        # os.makedirs(sys_dir, exist_ok=True)
     elif config.dir_structure == 'flat':
         print("DEBUG FLAT!")
         sys_dir = config.data_dir
@@ -485,7 +486,8 @@ def get_dft_convexhull(input, dft_type='GGA',
 
     if config.dir_structure == 'nested':
         sys_dir = os.path.join(config.data_dir, sys_name)
-        os.makedirs(sys_dir, exist_ok=True)
+        # Commented out for server deployment - no file writing allowed
+        # os.makedirs(sys_dir, exist_ok=True)
     elif config.dir_structure == 'flat':
         sys_dir = config.data_dir
     else:

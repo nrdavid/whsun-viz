@@ -340,8 +340,9 @@ class ternary_interpolation:
     def get_phasedia_entries(self, sys):
         # add a subdir to self.dir
         dft_subdir = os.path.join(self.direct, 'ternary_dft_data')
-        if not os.path.exists(dft_subdir):
-            os.makedirs(dft_subdir)
+        # Commented out for server deployment - no file writing allowed
+        # if not os.path.exists(dft_subdir):
+        #     os.makedirs(dft_subdir)
 
         json_path = os.path.join(dft_subdir, f"{sys}_entries.json")
         if os.path.exists(json_path):
@@ -352,6 +353,7 @@ class ternary_interpolation:
             print("Reading ternary DFT energies from MP")
             entries = mpr.get_entries_in_chemsys(sys)
             sanitized_entries = jsanitize(entries)
+            # Commented out for server deployment - no file writing allowed
             # with open(json_path, 'w') as f:
             #     json.dump(sanitized_entries, f)
         
