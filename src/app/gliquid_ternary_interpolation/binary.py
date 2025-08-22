@@ -9,40 +9,55 @@ ORCID: https://orcid.org/0009-0004-6334-9426
 """
 from __future__ import annotations
 
-# Configure matplotlib for server deployment (must be before matplotlib imports)
+# Completely disable matplotlib cache and config (must be before any imports)
 import os
-import tempfile
+import sys
 
-# Try multiple fallback locations for matplotlib cache
-try:
-    # First try creating a temp directory
-    temp_dir = tempfile.mkdtemp()
-    os.environ['MPLCONFIGDIR'] = temp_dir
-except (OSError, PermissionError):
-    # Fallback to /tmp if available and writable
-    try:
-        if os.path.exists('/tmp') and os.access('/tmp', os.W_OK):
-            os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib-cache'
-        else:
-            # Final fallback - disable cache entirely
-            os.environ['MPLCONFIGDIR'] = '/dev/null'
-    except:
-        # Ultimate fallback - set to current directory or disable
-        os.environ['MPLCONFIGDIR'] = os.getcwd() if os.access(os.getcwd(), os.W_OK) else '/dev/null'
-
-# Set additional environment variables to disable matplotlib caching
+# Prevent matplotlib from trying to create any cache directories
+os.environ['MPLCONFIGDIR'] = '/dev/null'
 os.environ['MPLBACKEND'] = 'Agg'
-os.environ['FONTCONFIG_PATH'] = '/dev/null'  # Disable fontconfig cache
+os.environ['FONTCONFIG_PATH'] = '/dev/null'
+os.environ['FONTCONFIG_FILE'] = '/dev/null'
 
-import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
+# Disable matplotlib completely by patching the import
+class MockMatplotlib:
+    def use(self, *args, **kwargs): pass
+    def ioff(self, *args, **kwargs): pass
+    class pyplot:
+        @staticmethod
+        def ioff(*args, **kwargs): pass
+        @staticmethod
+        def figure(*args, **kwargs): return None
+        @staticmethod
+        def subplots(*args, **kwargs): return None, None
+        @staticmethod
+        def plot(*args, **kwargs): pass
+        @staticmethod
+        def savefig(*args, **kwargs): pass
+        @staticmethod
+        def close(*args, **kwargs): pass
+        @staticmethod
+        def MultipleLocator(*args, **kwargs): return None
+        @staticmethod
+        def Normalize(*args, **kwargs): return None
+    class cm:
+        @staticmethod
+        def get_cmap(*args, **kwargs): return None
+        @staticmethod
+        def ScalarMappable(*args, **kwargs): return None
+    class colors:
+        @staticmethod
+        def LogNorm(*args, **kwargs): return None
+    class ticker:
+        @staticmethod
+        def ScalarFormatter(*args, **kwargs): return None
 
-# Disable matplotlib's internal caching mechanisms
-try:
-    import matplotlib.pyplot as plt
-    plt.ioff()  # Turn off interactive mode
-except ImportError:
-    pass
+# Patch matplotlib imports
+sys.modules['matplotlib'] = MockMatplotlib()
+sys.modules['matplotlib.pyplot'] = MockMatplotlib.pyplot
+sys.modules['matplotlib.cm'] = MockMatplotlib.cm
+sys.modules['matplotlib.colors'] = MockMatplotlib.colors
+sys.modules['matplotlib.ticker'] = MockMatplotlib.ticker
 
 import math
 import time
