@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 import sys
 
-# Prevent matplotlib from trying to create any cache directories
+# Prevent matplotlib from trying to create any cache directories (for server deployment)
 os.environ['MPLCONFIGDIR'] = '/dev/null'
 os.environ['MPLBACKEND'] = 'Agg'
 os.environ['FONTCONFIG_PATH'] = '/dev/null'
