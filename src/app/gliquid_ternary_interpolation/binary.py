@@ -9,6 +9,41 @@ ORCID: https://orcid.org/0009-0004-6334-9426
 """
 from __future__ import annotations
 
+# Configure matplotlib for server deployment (must be before matplotlib imports)
+import os
+import tempfile
+
+# Try multiple fallback locations for matplotlib cache
+try:
+    # First try creating a temp directory
+    temp_dir = tempfile.mkdtemp()
+    os.environ['MPLCONFIGDIR'] = temp_dir
+except (OSError, PermissionError):
+    # Fallback to /tmp if available and writable
+    try:
+        if os.path.exists('/tmp') and os.access('/tmp', os.W_OK):
+            os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib-cache'
+        else:
+            # Final fallback - disable cache entirely
+            os.environ['MPLCONFIGDIR'] = '/dev/null'
+    except:
+        # Ultimate fallback - set to current directory or disable
+        os.environ['MPLCONFIGDIR'] = os.getcwd() if os.access(os.getcwd(), os.W_OK) else '/dev/null'
+
+# Set additional environment variables to disable matplotlib caching
+os.environ['MPLBACKEND'] = 'Agg'
+os.environ['FONTCONFIG_PATH'] = '/dev/null'  # Disable fontconfig cache
+
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+
+# Disable matplotlib's internal caching mechanisms
+try:
+    import matplotlib.pyplot as plt
+    plt.ioff()  # Turn off interactive mode
+except ImportError:
+    pass
+
 import math
 import time
 import numbers
