@@ -797,9 +797,6 @@ class ternary_gtx_plotter(ternary_interpolation):
                 mode = 'lines', line = dict(color = group['Colors'], width = 10),
                 showlegend = False, opacity = 1,
                 hovertemplate = f'<b>Phase: {label}</b><br>' +
-                              f'x_{self.tern_sys[1]}: %{{customdata[0]:.3f}}<br>' +
-                              f'x_{self.tern_sys[2]}: %{{customdata[1]:.3f}}<br>' +
-                              'T: %{z:.1f}°C<br>' +
                               '<extra></extra>',
                 customdata = np.column_stack((group['x0_orig'], group['x1_orig']))
             ))
