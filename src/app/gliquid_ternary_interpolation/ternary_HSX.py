@@ -702,9 +702,6 @@ class ternary_gtx_plotter(ternary_interpolation):
         liq_simplex_df = liq_simplex_df.sort_values('T').drop_duplicates(subset=['x0', 'x1'], keep='first')
         simplex_df = pd.concat([solid_simplex_df, liq_simplex_df])
         
-        id_counts = simplex_df["simplex_id"].value_counts()
-        valid_ids = id_counts[id_counts == 3].index
-        simplex_df = simplex_df[simplex_df['simplex_id'].isin(valid_ids)].copy()
         simplex_df = simplex_df.sort_values(by='simplex_id').reset_index(drop=True)
 
         self.liq_plotting_df = self.plotting_df[self.plotting_df['Phase'] == 'L']
@@ -759,6 +756,18 @@ class ternary_gtx_plotter(ternary_interpolation):
 
         self.liq_plotting_df = self.liq_plotting_df.sort_values('T').drop_duplicates(subset=['x0', 'x1'], keep='first')
 
+        # Create coexistent phases information for liquid points
+        def get_coexistent_phases(simplex_id):
+            """Get coexistent solid phases for a given simplex_id"""
+            coexistent = simplex_df[(simplex_df['simplex_id'] == simplex_id) & (simplex_df['Phase'] != 'L')]
+            # coexistent = simplex_df[(simplex_df['simplex_id'] == simplex_id)]
+            if len(coexistent) > 0:
+                phases = coexistent['Phase'].unique()
+                return ', '.join(sorted(phases))
+            return ''
+        
+        # Add coexistent phases to liquid plotting dataframe
+        self.liq_plotting_df['coexistent_phases'] = self.liq_plotting_df['simplex_id'].apply(get_coexistent_phases)
 
         solid_points = np.array(list(zip(self.solid_plotting_df['x0'], self.solid_plotting_df['x1'], self.solid_plotting_df['T'])))
         liq_points = np.array(list(zip(self.liq_plotting_df['x0'], self.liq_plotting_df['x1'], self.liq_plotting_df['T'])))
@@ -810,9 +819,11 @@ class ternary_gtx_plotter(ternary_interpolation):
                           f'x_{self.tern_sys[1]}: %{{customdata[0]:.3f}}<br>' +
                           f'x_{self.tern_sys[2]}: %{{customdata[1]:.3f}}<br>' +
                           'T: %{z:.1f}°C<br>' +
+                          'Coexistent Phases: %{customdata[2]}<br>' +
                           '<extra></extra>',
             customdata = np.column_stack((self.liq_plotting_df['x0_orig'], 
-                                        self.liq_plotting_df['x1_orig']))
+                                        self.liq_plotting_df['x1_orig'],
+                                        self.liq_plotting_df['coexistent_phases']))
         ))
 
         # Add iso-temperature lines
