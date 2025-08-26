@@ -819,7 +819,7 @@ class ternary_gtx_plotter(ternary_interpolation):
                           f'x_{self.tern_sys[1]}: %{{customdata[0]:.3f}}<br>' +
                           f'x_{self.tern_sys[2]}: %{{customdata[1]:.3f}}<br>' +
                           'T: %{z:.1f}°C<br>' +
-                          'Coexistent Phases: %{customdata[2]}<br>' +
+                        #   'Coexistent Phases: %{customdata[2]}<br>' +
                           '<extra></extra>',
             customdata = np.column_stack((self.liq_plotting_df['x0_orig'], 
                                         self.liq_plotting_df['x1_orig'],
