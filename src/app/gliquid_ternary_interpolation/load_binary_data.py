@@ -204,13 +204,11 @@ def load_mpds_data(input, pd_ind=0) -> tuple[dict, dict, list[list] | None]:
         print(f"{comp}: H_fusion = {data[0]} J/mol, T_fusion = {data[1]} K, T_vaporization = {data[2]} K")
 
     if config.dir_structure == 'nested':
-        print("DEBUG NESTED!")
         sys_dir = os.path.join(config.data_dir, sys_name)
         print(sys_dir)
         # Commented out for server deployment - no file writing allowed
         # os.makedirs(sys_dir, exist_ok=True)
     elif config.dir_structure == 'flat':
-        print("DEBUG FLAT!")
         sys_dir = config.data_dir
         print(sys_dir)
     else:
@@ -227,7 +225,6 @@ def load_mpds_data(input, pd_ind=0) -> tuple[dict, dict, list[list] | None]:
         raise ValueError("Input for pd_ind must be an integer or 'None'!")
     
     if os.path.exists(sys_file): # Load from cache
-        print("DEBUG SYS")
         print(sys_file)
         print(sys_dir)
         with open(sys_file, 'r') as f:
@@ -235,7 +232,6 @@ def load_mpds_data(input, pd_ind=0) -> tuple[dict, dict, list[list] | None]:
             if mpds_json.get('reference', None) is not None:
                 print("\nReading MPDS json from entry at " + mpds_json['reference']['entry'] + "...\n")
     else: # Try API call
-        print("GAGA")
         print("\nNo cached binary phase data found!")
         mpds_api_key = os.getenv('MPDS_API_KEY')
         mpds_json = {"reference": None}

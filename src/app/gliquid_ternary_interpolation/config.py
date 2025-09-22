@@ -12,14 +12,12 @@ def set_project_root(path: Path):
 def set_data_dir(path: Path):
     global data_dir
     data_dir = path
-    print("DATAPATH: ", data_dir)
 
 def set_dir_structure(structure: str):
     global dir_structure
     if structure not in _DIR_STRUCT_OPTS:
         raise ValueError(f"dir_structure must be one of {_DIR_STRUCT_OPTS}")
     dir_structure = structure
-    print("DIR STRUCTURE: ", dir_structure)
 
 set_project_root(Path.cwd())
 set_data_dir(Path(project_root / "gliquid_ternary_interpolation/matrix_data_jsons"))
