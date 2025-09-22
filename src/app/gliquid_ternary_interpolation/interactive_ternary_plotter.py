@@ -18,7 +18,7 @@ def create_gliqtern_app(requests_pathname_prefix):
     gliq_app = flask.Flask(__name__)
     app = dash.Dash(__name__, server=gliq_app, requests_pathname_prefix=requests_pathname_prefix)
 
-    # Add CSS for loading animations
+    # CSS for loading animation
     app.index_string = '''
     <!DOCTYPE html>
     <html>
@@ -80,8 +80,8 @@ def create_gliqtern_app(requests_pathname_prefix):
             text_input = sorted(text_input)
             print(f"Generating plot for: {text_input} with interpolation type: {interp_type}")
             temp_slider = [lower_increment, upper_increment]
-            binary_param_df = pd.read_excel(dir + "multi_fit_no1S_nmae_lt_0.5.xlsx")
-            binary_param_pred_df = pd.read_excel(dir + "v17_comb1S_tau10k_predictions_rf_optimized.xlsx")
+            binary_param_df = pd.read_excel(dir + "multi_fit_no1S_nmae_lt_0.25-filtered.xlsx")
+            binary_param_pred_df = pd.read_excel(dir + "final_ml_params-internal.xlsx")
             binary_sys_labels = [
                 f"{text_input[0]}-{text_input[1]}", f"{text_input[1]}-{text_input[2]}", f"{text_input[2]}-{text_input[0]}"
             ]
@@ -197,7 +197,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                     'width': '15%', 'height': '100vh', 'padding': '10px',
                     'position': 'fixed', 'left': 0, 'top': 0, 'backgroundColor': '#f8f9fa',
                     'boxShadow': '2px 0 5px rgba(0,0,0,0.1)', 'overflowY': 'auto',
-                    'display': 'inline-block',  # Prevent overlap with the right section
+                    'display': 'inline-block',  
                     'verticalAlign': 'top'
                 }
             ),
@@ -205,7 +205,6 @@ def create_gliqtern_app(requests_pathname_prefix):
             # Right side main plot area
             html.Div(
                 [
-                    # Two-column layout: one for binary plots (left) and one for the ternary plot (right)
                     html.Div(
                         [
                             # Left column for binary plots
