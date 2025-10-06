@@ -115,7 +115,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                 
             print(fitorpred)
             print("Binary Interaction Parameters: ", binary_L_dict)
-            plotter = ternary_gtx_plotter(text_input, dir, interp_type=interp_type, param_format=param_format, L_dict=binary_L_dict, temp_slider=temp_slider, T_incr=5.0, delta = 0.025, fit_or_pred=fitorpred)
+            plotter = ternary_gtx_plotter(text_input, dir, interp_type=interp_type, param_format=param_format, L_dict=binary_L_dict, temp_slider=temp_slider, T_incr=10.0, delta = 0.025, fit_or_pred=fitorpred)
             plotter.interpolate()
             plotter.process_data()
 
@@ -255,7 +255,8 @@ def create_gliqtern_app(requests_pathname_prefix):
             Output('binary-plot-2', 'figure'),
             Output('binary-plot-3', 'figure'),
             Output('loading-message', 'children'),
-            Output('interval-component', 'disabled')],
+            Output('interval-component', 'disabled'),
+            Output('submit-val', 'disabled')],
         [Input('submit-val', 'n_clicks'),
             Input('interval-component', 'n_intervals')],
         [State('text-input', 'value'), State('upper_increment', 'value'), State('lower_increment', 'value')]
@@ -281,17 +282,17 @@ def create_gliqtern_app(requests_pathname_prefix):
                 html.Div(className="loading-spinner", style={'marginLeft': '8px'})
             ], style={'display': 'flex', 'alignItems': 'center', 'fontSize': '14px'})
             
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, loading_message, False
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, loading_message, False, True
 
         # If the interval triggered the callback, check if the plot is ready
         if plot_ready:
             if error_occurred:
                 # Return empty plots and show error message
                 empty_fig = go.Figure()
-                return empty_fig, empty_fig, empty_fig, empty_fig, error_message, True
+                return empty_fig, empty_fig, empty_fig, empty_fig, error_message, True, False
             else:
                 # Return successful plots and clear message
-                return ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, "", True
+                return ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, "", True, False
 
         # While waiting, show loading animation only if button was clicked
         if button_clicked:
@@ -299,10 +300,10 @@ def create_gliqtern_app(requests_pathname_prefix):
                 html.Span("Takes up to 2 minutes to generate plot"),
                 html.Div(className="loading-spinner", style={'marginLeft': '8px'})
             ], style={'display': 'flex', 'alignItems': 'center', 'fontSize': '14px'})
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, loading_message, False
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, loading_message, False, True
         else:
             # Initial state - no loading message
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Enter input and click 'Generate Plot' to see the result.", False
+            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Enter input and click 'Generate Plot' to see the result.", False, False
 
     return app
 
