@@ -469,7 +469,7 @@ class ternary_gtx_plotter(ternary_interpolation):
 
         fusion_temp = pd.read_json(os.path.join(fusion_temps_file), typ='series')
         tern_temp = fusion_temp[self.tern_sys].values 
-        max_temp = round(np.max(tern_temp) + 500)
+        max_temp = round(np.max(tern_temp) + 300)
         min_temp = round(np.min(tern_temp))
         self.conds = [np.min(np.array([0, min_temp - 200])), max_temp + self.temp_slider[1]]
         self.T_grid = np.arange(self.conds[0], self.conds[1] + self.T_incr, self.T_incr)
