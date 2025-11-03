@@ -34,6 +34,10 @@ def redirect_to_gliq_im():
 def redirect_to_test_web():
     return RedirectResponse(url="/cogito/bond_plots.html")
 
+@app.get("/vr")
+def redirect_to_ternary_phase_diagram():
+    return RedirectResponse(url="/vr/index.html")
+
 
 dash_app_rsm = create_rsm_app(requests_pathname_prefix="/rsm/")
 dash_app_tb = create_tb_app(requests_pathname_prefix="/tb/")
@@ -47,6 +51,7 @@ app.mount("/rsm", WSGIMiddleware(dash_app_rsm.server))
 app.mount("/tb", WSGIMiddleware(dash_app_tb.server))
 app.mount("/cogito-cohp", WSGIMiddleware(dash_app_cohp.server))
 app.mount("/gliquid_ternary_interpolation", WSGIMiddleware(dash_app_gliqtern.server))
+app.mount("/vr", StaticFiles(directory="vr"))
 
 if __name__ == "__main__":
     app.run()
