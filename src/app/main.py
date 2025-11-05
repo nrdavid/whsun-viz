@@ -36,7 +36,7 @@ def redirect_to_test_web():
 
 @app.get("/vr")
 def redirect_to_ternary_phase_diagram():
-    return RedirectResponse(url="/vr/index.html")
+    return RedirectResponse(url="/vr/ternary.html")
 
 
 dash_app_rsm = create_rsm_app(requests_pathname_prefix="/rsm/")
