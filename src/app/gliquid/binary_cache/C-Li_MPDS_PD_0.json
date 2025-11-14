@@ -1,0 +1,230 @@
+{
+  "temp": [
+    -273,
+    1127
+  ],
+  "arity": 2,
+  "entry": "C900508",
+  "naxes": 2,
+  "labels": [
+    [
+      "L",
+      [
+        94.6816622188334,
+        907.0304105423213
+      ],
+      null
+    ],
+    [
+      "Li<sub>2</sub>C<sub>2</sub> rt",
+      [
+        49.319319481511876,
+        219.69294221991788
+      ],
+      7452
+    ],
+    [
+      "LiC<sub>6</sub>",
+      [
+        18.15995996950273,
+        560.7770780536739
+      ],
+      20230
+    ],
+    [
+      "LiC<sub>18</sub>",
+      [
+        8.470672893635397,
+        562.1536619360865
+      ],
+      165541
+    ],
+    [
+      "LiC<sub>12</sub>",
+      [
+        11.632891727032279,
+        569.4978079066896
+      ],
+      20228
+    ],
+    [
+      "(Li) lt",
+      [
+        103.4746759435782,
+        -266.9081728333001
+      ],
+      7104
+    ],
+    [
+      "LiC<sub>72</sub>",
+      [
+        2.6944338543673787,
+        563.7040040546874
+      ],
+      null
+    ],
+    [
+      "LiC<sub>36</sub>",
+      [
+        5.615897826917897,
+        563.4166244297508
+      ],
+      null
+    ],
+    [
+      "(C) gra",
+      [
+        3.1210731986296816,
+        863.0862519006074
+      ],
+      100861
+    ],
+    [
+      "Li<sub>2</sub>C<sub>2</sub> ht",
+      [
+        49.00574723599148,
+        873.3112899137852
+      ],
+      20227
+    ],
+    [
+      "(Li) rt",
+      [
+        103.31798513153092,
+        -36.39068677146565
+      ],
+      5096
+    ]
+  ],
+  "shapes": [
+    {
+      "kind": "phase",
+      "label": "L",
+      "nphases": 1,
+      "svgpath": "M 100,207.74 L 100,1002.47 L 79.9657,1002.47 L 82.1858,990.718 L 84.2231,976.936 L 86.0865,960.644 L 87.7849,941.366 L 89.327,918.623 L 90.7217,891.939 L 91.9778,860.836 L 93.1041,824.836 L 94.1094,783.463 L 95.0026,736.237 L 95.7925,682.683 L 96.4879,622.322 L 97.0976,554.677 L 97.6305,479.271 L 98.0953,395.626 L 98.501,303.264 L 98.8563,201.709 L 100,207.74 M 100,207.74 L 100,207.74",
+      "is_solid": false
+    },
+    {
+      "kind": "phase",
+      "nphases": 2,
+      "svgpath": "M 100,1003.53 L 100,1127 L 0,1127 L 0,-273 L 100,-273 L 100,201.531 L 99.0324,201.531 L 98.8038,200.326 L 98.7996,201.531 L 49.8094,201.531 L 49.8094,201.886 L 98.7983,201.886 L 98.444,303.186 L 98.0384,395.528 L 97.5737,479.147 L 97.0411,554.52 L 96.4317,622.122 L 95.7369,682.43 L 94.948,735.919 L 94.0563,783.066 L 93.0532,824.348 L 91.9301,860.246 L 90.6782,891.245 L 89.2886,917.832 L 87.7521,940.491 L 86.0594,959.705 L 84.2011,975.952 L 82.1681,989.705 L 79.6801,1002.88 L 79.6849,1003.53 L 100,1003.53",
+      "is_solid": true
+    },
+    {
+      "kind": "phase",
+      "nphases": 2,
+      "svgpath": "M 100,201.886 L 100,206.634 L 99.0997,201.886 L 100,201.886",
+      "is_solid": true
+    },
+    {
+      "kind": "compound",
+      "label": "Li2C2 rt",
+      "phase": "Li2C2/71/oI8",
+      "nphases": 1,
+      "svgpath": "M 50,976.569 L 50,-246.036",
+      "is_solid": true,
+      "phase_id": 7452,
+      "reflabel": 1,
+      "chemical_elements": [
+        "Li",
+        "C"
+      ],
+      "reference": {
+        "phase": "https://mpds.io/phase/Li2C2/71/oI8"
+      }
+    },
+    {
+      "kind": "compound",
+      "label": "LiC6",
+      "phase": "LiC6/191/hP7",
+      "nphases": 1,
+      "svgpath": "M 16.7747,531.663 L 16.7747,-246.036",
+      "is_solid": true,
+      "phase_id": 20230,
+      "reflabel": 2,
+      "chemical_elements": [
+        "Li",
+        "C"
+      ],
+      "reference": {
+        "phase": "https://mpds.io/phase/LiC6/191/hP7"
+      }
+    },
+    {
+      "kind": "compound",
+      "label": "LiC18",
+      "phase": null,
+      "nphases": 1,
+      "svgpath": "M 8.52078,531.663 L 8.52078,-246.036",
+      "is_solid": true,
+      "phase_id": 165541,
+      "reflabel": 3,
+      "chemical_elements": [
+        "Li",
+        "C"
+      ]
+    },
+    {
+      "kind": "compound",
+      "label": "LiC36",
+      "nphases": 1,
+      "svgpath": "M 5.52802,531.663 L 5.52802,-246.036",
+      "is_solid": true,
+      "reflabel": 7
+    },
+    {
+      "kind": "compound",
+      "label": "LiC72",
+      "nphases": 1,
+      "svgpath": "M 2.91651,531.308 L 2.91651,-246.036",
+      "is_solid": true,
+      "reflabel": 6
+    },
+    {
+      "kind": "compound",
+      "label": "LiC12",
+      "phase": "LiC12/191/hP13",
+      "nphases": 1,
+      "svgpath": "M 1.54403,532.018 L 1.54403,-246.036",
+      "is_solid": true,
+      "phase_id": 20228,
+      "reflabel": 4,
+      "chemical_elements": [
+        "Li",
+        "C"
+      ],
+      "reference": {
+        "phase": "https://mpds.io/phase/LiC12/191/hP13"
+      }
+    }
+  ],
+  "diatype": "binary",
+  "title_a": "C",
+  "title_b": "Li",
+  "comp_end": {
+    "C": 0,
+    "Li": 1
+  },
+  "comp_range": [
+    0,
+    100
+  ],
+  "comp_start": {
+    "C": 1,
+    "Li": 0
+  },
+  "chemical_elements": [
+    "C",
+    "Li"
+  ],
+  "object_repr": "C-A543189",
+  "$schema": "https://developer.mpds.io/mpds.schema.json#/definitions/phase_diagram",
+  "version": "1.2.0",
+  "object_type": "C",
+  "use_visavis_type": "pd",
+  "reference": {
+    "entry": "https://mpds.io/entry/C900508",
+    "citation": "Okamoto H. (1990)"
+  },
+  "jcode": "MAS390"
+}
