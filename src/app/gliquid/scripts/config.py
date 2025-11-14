@@ -1,6 +1,6 @@
 from pathlib import Path
-import os
-import zipfile
+# import os
+# import zipfile
 _DIR_STRUCT_OPTS = ['flat', 'nested']
 
 project_root = None
@@ -35,9 +35,9 @@ set_project_root(Path.cwd())
 set_data_dir(Path(project_root / "gliquid/binary_cache"))
 set_dir_structure(_DIR_STRUCT_OPTS[0])
 
-for zip_path in ["gliquid/matrix_assets.zip", "gliquid/binary_cache.zip"]:
-    target_dir = zip_path.replace('.zip', '')
-    if os.path.exists(zip_path) and not os.path.exists(target_dir):
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(os.path.dirname(target_dir))
-    assert os.path.exists(target_dir), f"Required directory {target_dir} does not exist"
+# for zip_path in ["gliquid/matrix_assets.zip", "gliquid/binary_cache.zip"]:
+#     target_dir = zip_path.replace('.zip', '')
+#     if os.path.exists(zip_path) and not os.path.exists(target_dir):
+#         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+#             zip_ref.extractall(os.path.dirname(target_dir))
+#     assert os.path.exists(target_dir), f"Required directory {target_dir} does not exist"
