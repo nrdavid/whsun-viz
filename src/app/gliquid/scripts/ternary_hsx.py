@@ -1,6 +1,8 @@
 '''
 Author: Abrar Rauf, Joshua Wilwerth
 This module contains the classes for ternary interpolation and ternary phase diagram plotting.
+GitHub: https://github.com/AbrarRauf
+ORCID: https://orcid.org/0000-0001-5205-0075
 '''
 import os
 import time
@@ -23,7 +25,6 @@ from copy import deepcopy
 
 from gliquid.scripts.config import fusion_enthalpies_file, fusion_temps_file
 from gliquid.scripts.binary import BinaryLiquid, linear_expr, exponential_expr, combined_expr
-import random
 
 # mpr = MPRester(MAPI_KEY)
 mpr = MPRester(os.getenv("NEW_MP_API_KEY"))  # Use environment variable for MP_API_KEY
@@ -34,7 +35,7 @@ x1_sym, x2_sym, t_sym, w12_sym, w23_sym, w31_sym, a_sym, b_sym = sp.symbols('x1 
 
 _L_LINEAR_EXPR = linear_expr(a_sym, b_sym)
 _L_EXP_EXPR = exponential_expr(a_sym, b_sym)
-_L_LIN_EXP_EXPR = combined_expr(a_sym, b_sym, sp.Integer(10000))
+_L_LIN_EXP_EXPR = combined_expr(a_sym, b_sym, sp.Integer(8000))
 
 def build_ternary_thermodynamic_expressions(
     x1=x1_sym, x2=x2_sym, t=t_sym,
@@ -58,18 +59,24 @@ def build_ternary_thermodynamic_expressions(
         g_ref_a_expr: Sympy expression for the reference Gibbs energy of component A.
         g_ref_b_expr: Sympy expression for the reference Gibbs energy of component B.
         g_ref_c_expr: Sympy expression for the reference Gibbs energy of component C.
-        w12, w23, w31: Weighting factors for each binary.
-        l0_ab_expr, l1_ab_expr: Sympy expressions for AB binary Redlich-Kister parameters.
-        l0_bc_expr, l1_bc_expr: Sympy expressions for BC binary Redlich-Kister parameters.
-        l0_ca_expr, l1_ca_expr: Sympy expressions for CA binary Redlich-Kister parameters.
+        w12, w23, w31: Weighting factors for A-B, B-C, C-A binaries respectively.
+        l0_ab_expr, l1_ab_expr: Sympy expressions for A-B binary Redlich-Kister parameters.
+        l0_bc_expr, l1_bc_expr: Sympy expressions for B-C binary Redlich-Kister parameters.
+        l0_ca_expr, l1_ca_expr: Sympy expressions for C-A binary Redlich-Kister parameters.
         l0_abc_expr: Optional ternary interaction parameter (default 0).
+        
+    Composition mapping:
+        x_a = 1 - x1 - x2  (component A, typically tern_sys[0])
+        x_b = x1            (component B, typically tern_sys[1])  
+        x_c = x2            (component C, typically tern_sys[2])
 
     Returns:
         dict[str, sp.Expr]: A dictionary mapping equation names to their Sympy expressions.
     """
-    x_a = 1 - x1 - x2
-    x_b = x1
-    x_c = x2
+    # Define composition fractions consistently
+    x_a = 1 - x1 - x2  # Component A (first element in tern_sys)
+    x_b = x1            # Component B (second element in tern_sys)
+    x_c = x2            # Component C (third element in tern_sys)
 
     # Reference Gibbs energy
     g_ref = g_ref_a_expr * x_a + g_ref_b_expr * x_b + g_ref_c_expr * x_c
@@ -243,12 +250,9 @@ def gliq_lowerhull3(points, vertical_simplices = False):
     fake_points = np.hstack((sub_hull_points, upper_bound_col))
 
     # change the entry in the last row and last column to twice its value
-    fake_points[-1, -1] = fake_points[-1, -1] + (0.5*upper_bound)
+    fake_points[-1, -1] = fake_points[-1, -1] + (2.0*upper_bound)
 
     new_points = np.vstack((points, fake_points))
-
-    # scale h values of new_points
-    new_points[:, -1] = new_points[:, -1]
 
     # take the total convex hull
     new_hull = ConvexHull(new_points)
@@ -285,7 +289,7 @@ class ternary_interpolation:
         self.tern_sys = sorted(tern_sys)
         print("initializing for: ", self.tern_sys)
         self.binary_sys = ordered_binary_systems(self.tern_sys)
-        self.direct= direct# moving forward, I will store all relevant paths in the gliquid/config.py file. Also shouldn't use a builtin name for a variable
+        self.direct = direct
         
         self.delta = kwargs.get('delta', 0.025)  # default to 0.025
         self.tern_comp = generate_comp_grid(self.delta)
@@ -364,23 +368,29 @@ class ternary_interpolation:
 
 
         L_array = np.array([self.L_dict[sys] for sys in self.binary_sys]) # 3 x 4 array in order of binary systems
+        
+        print(f"Binary systems order: {self.binary_sys}")
+        print(f"Ternary system order: {self.tern_sys} -> A={self.tern_sys[0]}, B={self.tern_sys[1]}, C={self.tern_sys[2]}")
+        
         symbolic_expressions = build_ternary_thermodynamic_expressions(
             w12=wAB, w23=wBC, w31=wCA,
             g_ref_a_expr=(H_A - t_sym * S_A),
-            g_ref_b_expr=(H_B - t_sym * S_B),
+            g_ref_b_expr=(H_B - t_sym * S_B), 
             g_ref_c_expr=(H_C - t_sym * S_C),
-            l0_ab_expr=l_expr.subs({a_sym: L_array[0][0], b_sym: L_array[0][1]}),
+            l0_ab_expr=l_expr.subs({a_sym: L_array[0][0], b_sym: L_array[0][1]}),  # A-B binary
             l1_ab_expr=l_expr.subs({a_sym: L_array[0][2], b_sym: L_array[0][3]}),
-            l0_bc_expr=l_expr.subs({a_sym: L_array[1][0], b_sym: L_array[1][1]}),
+            l0_bc_expr=l_expr.subs({a_sym: L_array[1][0], b_sym: L_array[1][1]}),  # B-C binary
             l1_bc_expr=l_expr.subs({a_sym: L_array[1][2], b_sym: L_array[1][3]}),
-            l0_ca_expr=l_expr.subs({a_sym: L_array[2][0], b_sym: L_array[2][1]}),
+            l0_ca_expr=l_expr.subs({a_sym: L_array[2][0], b_sym: L_array[2][1]}),  # C-A binary  
             l1_ca_expr=l_expr.subs({a_sym: L_array[2][2], b_sym: L_array[2][3]}),
             l0_abc_expr=self.L_tern[0] if self.L_tern[0] != 0 else 0
         )
 
         tm_mean = np.mean(self.ref_data['T']) # mean melting point in ternary - used for t-dependent H and S forms
+        
+        # Consistent mapping: x1_sym -> x_B (tern_sys[1]), x2_sym -> x_C (tern_sys[2])
         lambda_args_symbols = [x1_sym, x2_sym, t_sym]
-        lambda_args_values = [x_B, x_C, tm_mean]
+        lambda_args_values = [x_B, x_C, tm_mean]  # x_B=tern_comp['B'], x_C=tern_comp['C']
 
         h_lambdified = sp.lambdify(lambda_args_symbols, symbolic_expressions['h_liquid'], 'numpy')
         s_lambdified = sp.lambdify(lambda_args_symbols, symbolic_expressions['s_liquid'], 'numpy')
@@ -463,7 +473,7 @@ class ternary_interpolation:
 
         return tern_mp_df
 
-    def add_binary_data(self):
+    def add_binary_data(self, ternary_color_map=None):
         # add binary data to the ternary data and plot the binaries (optional)
         bin_fig_list = []
         def process_system(sys_name):
@@ -472,9 +482,9 @@ class ternary_interpolation:
             data = sys.update_phase_points()
             fit_type = self.fit_or_pred[sys_name] 
             if fit_type == 'fit':
-                figr = sys.hsx.plot_tx(digitized_liquidus=sys.digitized_liq)
+                figr = sys.hsx.plot_tx(digitized_liquidus=sys.digitized_liq, ternary_color_map=ternary_color_map)
             else:
-                figr = sys.hsx.plot_tx(pred=True)
+                figr = sys.hsx.plot_tx(pred=True, ternary_color_map=ternary_color_map)
             bin_fig_list.append(figr)
             
 
@@ -487,7 +497,7 @@ class ternary_interpolation:
     def interpolate(self):
         # create the hsx dataframe for the ternary system
         self.ternary_interpolation() # populates self.hsx_df with ternary liquid phase data
-        self.bin_fig_list = self.add_binary_data()
+        # self.bin_fig_list = self.add_binary_data(ternary_color_map=ternary_color_map)
         self.tern_mp_df = self.get_ternary_form_en(self.tern_sys)
         self.hsx_df = pd.concat([self.hsx_df, self.tern_mp_df], ignore_index=True)
         self.hsx_df = self.hsx_df.drop_duplicates()
@@ -513,10 +523,19 @@ class ternary_gtx_plotter(ternary_interpolation):
 
         solid_phases = self.phases.copy()
         solid_phases.remove('L')
-        # Generate a random color array with at least 100 options
-        def random_color():
-            return f"#{random.randint(0, 0xFFFFFF):06x}"
-        color_array = [random_color() for _ in range(100)]
+        color_array = [
+            "#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E",
+            "#E6AB02", "#A6761D", "#666666", "#E41A1C", "#4DAF4A",
+            "#984EA3", "#FF7F00", "#FFFF33", "#A65628", "#F781BF",
+            "#B3B3B3", "#33A02C", "#FB9A99", "#FDBF6F", "#CAB2D6",
+            "#FF4500", "#8B4513", "#228B22", "#C71585", "#FFD700",
+            "#5C4033", "#DC143C", "#9400D3", "#ADFF2F", "#8FBC8F",
+            "#CD5C5C", "#B8860B", "#556B2F", "#DA70D6", "#F0E68C",
+            "#8B0000", "#9932CC", "#3CB371", "#F4A460", "#FF1493",
+            "#708090", "#B22222", "#DEB887", "#800080", "#006400",
+            "#BC8F8F", "#D2691E", "#E9967A", "#483D8B", "#A0522D"
+        ]
+        print(len(color_array), "colors available for phases")
         self.color_map = dict(zip(solid_phases, color_array))
         self.color_map['L'] = 'cornflowerblue'
 
@@ -535,6 +554,8 @@ class ternary_gtx_plotter(ternary_interpolation):
         for T in self.T_grid:
             self.hsx_df['G'] = self.hsx_df['H'] - T*self.hsx_df['S']
             self.df_Tgroups[T] = self.hsx_df[['x0', 'x1', 'G', 'Phase', 'Colors']].copy()
+
+        self.bin_fig_list = self.add_binary_data(ternary_color_map=self.color_map)
         
         print('Initialization complete')
 
