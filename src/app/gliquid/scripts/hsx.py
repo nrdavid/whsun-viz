@@ -285,11 +285,12 @@ class HSX:
         count_dict = {key: len(value) for key, value in inv_points.items()}
 
         return inv_points, combined_list, count_dict
-    
-    def plot_tx(self, pred: bool = False, digitized_liquidus: list = None, gas_temp: int | float = None) -> go.Figure:
+
+    def plot_tx(self, pred: bool = False, digitized_liquidus: list = None, gas_temp: int | float = None, ternary_color_map: list = None) -> go.Figure:
         """Plots the binary phase diagram from computed phase boundaries and invariant points."""
         liq_inv = self.liquidus_invariants()
         inv_points, combined_list = liq_inv[:2]
+        self.phase_color_remap = ternary_color_map if ternary_color_map else self.phase_color_remap
         
         new_tx = []
         for comb in combined_list:

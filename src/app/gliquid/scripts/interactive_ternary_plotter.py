@@ -46,6 +46,19 @@ def create_gliqtern_app(requests_pathname_prefix):
                     100% { transform: rotate(360deg); }
                 }
             </style>
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.addEventListener('keydown', function(event) {
+                        if (event.key === 'Enter') {
+                            // Find the generate button and click it
+                            var button = document.getElementById('submit-val');
+                            if (button && !button.disabled) {
+                                button.click();
+                            }
+                        }
+                    });
+                });
+            </script>
         </head>
         <body>
             {%app_entry%}
