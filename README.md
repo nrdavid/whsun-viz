@@ -5,6 +5,8 @@ https://whsunresearch.group/viz
 
 ## Testing
 
+This assumes you have [Git](https://git-scm.com/install/) and [Git LFS](https://git-lfs.com/) installed on your machine.
+
 First install [Docker](https://www.docker.com/) for your system.
 
 Fork then clone the repository to your local.
