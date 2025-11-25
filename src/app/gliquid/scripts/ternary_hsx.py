@@ -477,8 +477,21 @@ class ternary_interpolation:
         # add binary data to the ternary data and plot the binaries (optional)
         bin_fig_list = []
         def process_system(sys_name):
-            params = self.L_dict[sys_name]
-            sys = BinaryLiquid.from_cache("-".join(sorted(sys_name.split('-'))), params=params, param_format=self.param_format, pd_ind=0)
+            params = self.L_dict[sys_name].copy()
+            
+            # Check if the system name is in alphabetical order
+            components = sys_name.split('-')
+            alphabetical_order = '-'.join(sorted(components))
+            
+            # If not alphabetical, un-flip L1 parameters since BinaryLiquid.from_cache will flip them
+            if sys_name != alphabetical_order:
+                if self.param_format != 'exponential':
+                    params[2:] = [-1 * p for p in params[2:]]
+                else:
+                    params[2] *= -1
+            
+            # Use alphabetized name for from_cache to find the correct cached MPDS file
+            sys = BinaryLiquid.from_cache(input=alphabetical_order, params=params, param_format=self.param_format, pd_ind=0)
             data = sys.update_phase_points()
             fit_type = self.fit_or_pred[sys_name] 
             if fit_type == 'fit':
@@ -491,13 +504,11 @@ class ternary_interpolation:
         for sys_name in self.L_dict.keys():
             process_system(sys_name)
 
-        return bin_fig_list
-        
-
+        return bin_fig_list        
+    
     def interpolate(self):
         # create the hsx dataframe for the ternary system
         self.ternary_interpolation() # populates self.hsx_df with ternary liquid phase data
-        # self.bin_fig_list = self.add_binary_data(ternary_color_map=ternary_color_map)
         self.tern_mp_df = self.get_ternary_form_en(self.tern_sys)
         self.hsx_df = pd.concat([self.hsx_df, self.tern_mp_df], ignore_index=True)
         self.hsx_df = self.hsx_df.drop_duplicates()
@@ -543,7 +554,7 @@ class ternary_gtx_plotter(ternary_interpolation):
         tern_temp = fusion_temp[self.tern_sys].values 
         max_temp = round(np.max(tern_temp) + 300)
         min_temp = round(np.min(tern_temp))
-        self.conds = [np.min(np.array([0, min_temp - 200])), max_temp + self.temp_slider[1]]
+        self.conds = [np.min(np.array([0, min_temp - 200])) - self.temp_slider[0], max_temp + self.temp_slider[1]]
         self.T_grid = np.arange(self.conds[0], self.conds[1] + self.T_incr, self.T_incr)
         self.hsx_df['x0'] = self.hsx_df['x0'].round(4)
         self.hsx_df['x1'] = self.hsx_df['x1'].round(4)
