@@ -405,6 +405,7 @@ class HSX:
             fig.add_trace(px.line(liq_df, x='x', y='t', color='label',
                                   color_discrete_map=self.phase_color_remap).data[0])
         else:
+            self.phase_color_remap['L'] = 'cornflowerblue'
             fig.add_trace(px.line(liq_df, x='x', y='t', color='label',
                                   color_discrete_map=self.phase_color_remap).data[0])
         fig.update_traces(line=dict(width=4), showlegend=False)

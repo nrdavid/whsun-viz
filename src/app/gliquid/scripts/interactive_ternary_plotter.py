@@ -92,44 +92,98 @@ def create_gliqtern_app(requests_pathname_prefix):
             error_message = ""
             
             text_input = text_input.split('-')
+            
             text_input = sorted(text_input)
             print(f"Generating plot for: {text_input} with interpolation type: {interp_type}")
+            
+            # ASSERT: Elements should be valid after sorting
+            assert all(len(e) <= 2 and e.isalpha() for e in text_input), f"Invalid element symbols: {text_input}"
+            
             temp_slider = [lower_increment, upper_increment]
             binary_param_df = pd.read_excel(f"{cfg.data_dir}/fitted_params.xlsx")
             binary_param_pred_df = pd.read_excel(f"{cfg.data_dir}/predicted_params.xlsx")
+            
+            # ASSERT: Parameter dataframes have required columns
+            required_cols = ['system', 'L0_a', 'L0_b', 'L1_a', 'L1_b']
+            assert all(col in binary_param_df.columns for col in required_cols), f"Fitted params missing columns: {set(required_cols) - set(binary_param_df.columns)}"
+            assert all(col in binary_param_pred_df.columns for col in required_cols), f"Predicted params missing columns: {set(required_cols) - set(binary_param_pred_df.columns)}"
+            
             binary_sys_labels = [
                 f"{text_input[0]}-{text_input[1]}", f"{text_input[1]}-{text_input[2]}", f"{text_input[2]}-{text_input[0]}"
             ]
             print("Binary System Labels: ", binary_sys_labels)
+            
+            # ASSERT: Binary labels should have exactly 3 systems for ternary
+            assert len(binary_sys_labels) == 3, f"Expected 3 binary systems, got {len(binary_sys_labels)}"
             binary_L_dict = {}
             fitorpred = {}
             for bin_sys in binary_sys_labels:
                 flipped_sys = "-".join(sorted(bin_sys.split('-')))
+                order_changed = (bin_sys != flipped_sys)
+                
+                # ASSERT: Flipped system should be alphabetically ordered
+                components = flipped_sys.split('-')
+                assert components == sorted(components), f"Flipped system {flipped_sys} is not alphabetically ordered"
 
-                if bin_sys in binary_param_df['system'].tolist():
-                    params = binary_param_df[binary_param_df['system'] == bin_sys].iloc[0]
+                # Prioritize fitted params over predicted - check fitted dataframe first
+                if bin_sys in binary_param_df['system'].tolist() or flipped_sys in binary_param_df['system'].tolist():
+                    # Found in fitted params
+                    if bin_sys in binary_param_df['system'].tolist():
+                        params = binary_param_df[binary_param_df['system'] == bin_sys].iloc[0]
+                    else:
+                        params = binary_param_df[binary_param_df['system'] == flipped_sys].iloc[0]
                     fitorpred[bin_sys] = "fit"
-                elif flipped_sys in binary_param_df['system'].tolist():
-                    params = binary_param_df[binary_param_df['system'] == flipped_sys].iloc[0]
-                    fitorpred[bin_sys] = "fit"
-                elif bin_sys in binary_param_pred_df['system'].tolist():
-                    params = binary_param_pred_df[binary_param_pred_df['system'] == bin_sys].iloc[0]
+                    
+                    # ASSERT: When found in fitted params, should be marked as 'fit'
+                    assert fitorpred[bin_sys] == "fit", f"Binary {bin_sys} found in fitted but marked as {fitorpred[bin_sys]}"
+                    
+                elif bin_sys in binary_param_pred_df['system'].tolist() or flipped_sys in binary_param_pred_df['system'].tolist():
+                    # Found in predicted params
+                    if bin_sys in binary_param_pred_df['system'].tolist():
+                        params = binary_param_pred_df[binary_param_pred_df['system'] == bin_sys].iloc[0]
+                    else:
+                        params = binary_param_pred_df[binary_param_pred_df['system'] == flipped_sys].iloc[0]
                     fitorpred[bin_sys] = "pred"
-                elif flipped_sys in binary_param_pred_df['system'].tolist():
-                    params = binary_param_pred_df[binary_param_pred_df['system'] == flipped_sys].iloc[0]
-                    fitorpred[bin_sys] = "pred"
+                    
+                    # ASSERT: When found in predicted params, should be marked as 'pred'
+                    assert fitorpred[bin_sys] == "pred", f"Binary {bin_sys} found in predicted but marked as {fitorpred[bin_sys]}"
+                    
                 else:
                     raise ValueError(f"Binary system {bin_sys} not found in the parameter dataframe.")
 
-                binary_L_dict[bin_sys] = [
-                    float(params["L0_a"]),
-                    float(params["L0_b"]),
-                    float(params["L1_a"]),
-                    float(params["L1_b"])
-                ]
+                
+                L0_a = float(params["L0_a"])
+                L0_b = float(params["L0_b"])
+                L1_a = float(params["L1_a"])
+                L1_b = float(params["L1_b"])
+                
+                # Store original values for assertion
+                original_L1_a = L1_a
+                original_L1_b = L1_b
+                
+                if order_changed:
+                    L1_a = -L1_a
+                    L1_b = -L1_b
+                    
+                    # ASSERT: L1 parameters should be negated when order changed
+                    assert L1_a == -original_L1_a, f"L1_a not properly negated: {L1_a} != -{original_L1_a}"
+                    assert L1_b == -original_L1_b, f"L1_b not properly negated: {L1_b} != -{original_L1_b}"
+
+                binary_L_dict[bin_sys] = [L0_a, L0_b, L1_a, L1_b]
+                
+                # ASSERT: Parameter array should have exactly 4 elements
+                assert len(binary_L_dict[bin_sys]) == 4, f"Parameter array for {bin_sys} should have 4 elements, got {len(binary_L_dict[bin_sys])}"
                 
             print(fitorpred)
             print("Binary Interaction Parameters: ", binary_L_dict)
+            
+            # ASSERT: L_dict and fitorpred should have same keys
+            assert set(binary_L_dict.keys()) == set(fitorpred.keys()), f"Key mismatch: L_dict keys {set(binary_L_dict.keys())} != fitorpred keys {set(fitorpred.keys())}"
+            
+            # ASSERT: All binary systems should be accounted for
+            assert len(binary_L_dict) == 3, f"Expected 3 binary systems in L_dict, got {len(binary_L_dict)}"
+            assert len(fitorpred) == 3, f"Expected 3 binary systems in fitorpred, got {len(fitorpred)}"
+            
             plotter = ternary_gtx_plotter(text_input, cfg.data_dir, interp_type=interp_type, param_format=param_format, 
                                           L_dict=binary_L_dict, temp_slider=temp_slider, T_incr=10.0, delta = 0.025, fit_or_pred=fitorpred)
             plotter.interpolate()
@@ -143,6 +197,10 @@ def create_gliqtern_app(requests_pathname_prefix):
             ternary_plot = plotter.plot_ternary()
             ternary_plot.update_layout(title=f"<b>Interpolated {plotter.tern_sys_name} Ternary Phase Diagram</b>", showlegend=True, width=tern_width, height=tern_height, font=dict(size=14, color='black'))
 
+            # ASSERT: Plotter should have 3 binary figures
+            assert hasattr(plotter, 'bin_fig_list'), "Plotter should have bin_fig_list attribute"
+            assert len(plotter.bin_fig_list) == 3, f"Expected 3 binary figures, got {len(plotter.bin_fig_list)}"
+
             binary_plot_1 = plotter.bin_fig_list[0]
             binary_plot_1.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
 
@@ -151,6 +209,12 @@ def create_gliqtern_app(requests_pathname_prefix):
 
             binary_plot_3 = plotter.bin_fig_list[2]
             binary_plot_3.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
+            
+            # ASSERT: All plots should be valid Plotly figures
+            assert isinstance(ternary_plot, go.Figure), "Ternary plot should be a Plotly Figure"
+            assert isinstance(binary_plot_1, go.Figure), "Binary plot 1 should be a Plotly Figure"
+            assert isinstance(binary_plot_2, go.Figure), "Binary plot 2 should be a Plotly Figure"
+            assert isinstance(binary_plot_3, go.Figure), "Binary plot 3 should be a Plotly Figure"
 
             plot_ready = True
             
