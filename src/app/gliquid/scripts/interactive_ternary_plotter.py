@@ -14,12 +14,165 @@ import flask
 from gliquid.scripts.ternary_hsx import ternary_gtx_plotter
 import gliquid.scripts.config as cfg
 import pandas as pd
+import json
+import uuid
+from pathlib import Path
+import copy
+
+def load_landing_figures():
+    """
+    Load pre-generated landing figures from the ternary_cache directory.
+    Falls back to generating them if cache files don't exist.
+    """
+    cache_dir = Path(cfg.project_root) / "gliquid" / "ternary_cache"
+    
+    # Try to load from JSON files
+    try:
+        ternary_json_path = cache_dir / "landing_ternary.json"
+        binary_paths = [cache_dir / f"landing_binary_{i}.json" for i in range(1, 4)]
+        
+        if not ternary_json_path.exists() or not all(p.exists() for p in binary_paths):
+            raise FileNotFoundError("Landing cache JSON files not found")
+        
+        # Load ternary figure from JSON string
+        with open(ternary_json_path, 'r', encoding='utf-8') as f:
+            ternary_json_str = f.read()
+        landing_ternary_dict = json.loads(ternary_json_str)
+        landing_ternary = go.Figure(landing_ternary_dict)
+        
+        # Load binary figures from JSON
+        landing_binaries = []
+        for path in binary_paths:
+            with open(path, 'r', encoding='utf-8') as f:
+                binary_json_str = f.read()
+            binary_dict = json.loads(binary_json_str)
+            landing_binaries.append(go.Figure(binary_dict))
+        
+        print("Successfully loaded landing figures from JSON cache")
+        return landing_ternary, landing_binaries
+        
+    except Exception as e:
+        print(f"Could not load from cache ({e}), generating landing figures...")
+        # Generate Fe-Ce-Si as the default landing system
+        return generate_landing_system()
+
+def generate_landing_system():
+    """Generate the Fe-Ce-Si system as the landing page"""
+    text_input = ['Ce', 'Fe', 'Si']
+    upper_increment = 0.0
+    lower_increment = 0.0
+    interp_type = 'linear'
+    param_format = 'combined'
+    
+    try:
+        binary_param_df = pd.read_excel(f"{cfg.data_dir}/fitted_params.xlsx")
+        binary_param_pred_df = pd.read_excel(f"{cfg.data_dir}/predicted_params.xlsx")
+        
+        binary_sys_labels = [
+            f"{text_input[0]}-{text_input[1]}", 
+            f"{text_input[1]}-{text_input[2]}", 
+            f"{text_input[2]}-{text_input[0]}"
+        ]
+        
+        binary_L_dict = {}
+        fitorpred = {}
+        
+        for bin_sys in binary_sys_labels:
+            flipped_sys = "-".join(sorted(bin_sys.split('-')))
+            order_changed = (bin_sys != flipped_sys)
+            
+            if bin_sys in binary_param_df['system'].tolist() or flipped_sys in binary_param_df['system'].tolist():
+                if bin_sys in binary_param_df['system'].tolist():
+                    params = binary_param_df[binary_param_df['system'] == bin_sys].iloc[0]
+                else:
+                    params = binary_param_df[binary_param_df['system'] == flipped_sys].iloc[0]
+                fitorpred[bin_sys] = "fit"
+            elif bin_sys in binary_param_pred_df['system'].tolist() or flipped_sys in binary_param_pred_df['system'].tolist():
+                if bin_sys in binary_param_pred_df['system'].tolist():
+                    params = binary_param_pred_df[binary_param_pred_df['system'] == bin_sys].iloc[0]
+                else:
+                    params = binary_param_pred_df[binary_param_pred_df['system'] == flipped_sys].iloc[0]
+                fitorpred[bin_sys] = "pred"
+            else:
+                raise ValueError(f"Binary system {bin_sys} not found")
+            
+            L0_a, L0_b = float(params["L0_a"]), float(params["L0_b"])
+            L1_a, L1_b = float(params["L1_a"]), float(params["L1_b"])
+            
+            if order_changed:
+                L1_a, L1_b = -L1_a, -L1_b
+            
+            binary_L_dict[bin_sys] = [L0_a, L0_b, L1_a, L1_b]
+        
+        temp_slider = [lower_increment, upper_increment]
+        plotter = ternary_gtx_plotter(
+            text_input, cfg.data_dir, 
+            interp_type=interp_type, 
+            param_format=param_format,
+            L_dict=binary_L_dict, 
+            temp_slider=temp_slider, 
+            T_incr=10.0, 
+            delta=0.025, 
+            fit_or_pred=fitorpred
+        )
+        
+        plotter.interpolate()
+        plotter.process_data()
+        
+        sub_width, sub_height = 400, 300
+        tern_width, tern_height = 700, 900
+        
+        ternary_plot = plotter.plot_ternary()
+        ternary_plot.update_layout(
+            title=f"<b>Interpolated {plotter.tern_sys_name} Ternary Phase Diagram</b>",
+            showlegend=True, 
+            width=tern_width, 
+            height=tern_height, 
+            font=dict(size=14, color='black')
+        )
+        
+        binary_plots = []
+        for bin_fig in plotter.bin_fig_list:
+            bin_fig.update_layout(showlegend=False, width=sub_width, height=sub_height, font=dict(size=10))
+            binary_plots.append(bin_fig)
+        
+        print("Successfully generated landing system: Fe-Ce-Si")
+        return ternary_plot, binary_plots
+        
+    except Exception as e:
+        print(f"Error generating landing system: {e}")
+        # Return empty figures as fallback
+        return go.Figure(), [go.Figure(), go.Figure(), go.Figure()]
 
 def create_gliqtern_app(requests_pathname_prefix):
     gliq_app = flask.Flask(__name__)
     app = dash.Dash(__name__, server=gliq_app, requests_pathname_prefix=requests_pathname_prefix, 
                     assets_folder=f"{cfg.project_root}/gliquid/")
     app.title = "Ternary Plotter"
+    
+    # Load landing figures once at app startup
+    LANDING_TERNARY, LANDING_BINARIES = load_landing_figures()
+    
+    # Dictionary to store per-session data
+    session_data = {}
+    
+    # Session cleanup - remove sessions older than 2 hours to prevent memory leaks
+    import time
+    session_timestamps = {}
+    
+    def cleanup_old_sessions():
+        """Remove sessions older than 2 hours"""
+        current_time = time.time()
+        sessions_to_remove = [
+            sid for sid, timestamp in session_timestamps.items() 
+            if current_time - timestamp > 7200  # 2 hours
+        ]
+        for sid in sessions_to_remove:
+            if sid in session_data:
+                del session_data[sid]
+            del session_timestamps[sid]
+        if sessions_to_remove:
+            print(f"Cleaned up {len(sessions_to_remove)} old sessions")
 
     # CSS for loading animation
     app.index_string = '''
@@ -74,22 +227,23 @@ def create_gliqtern_app(requests_pathname_prefix):
     interp_type = 'linear'  
     param_format = 'combined'
 
-    # Global variables to store figures and readiness
-    ternary_plot = go.Figure()
-    binary_plot_1 = go.Figure()
-    binary_plot_2 = go.Figure()
-    binary_plot_3 = go.Figure()
-    plot_ready = False
-    error_occurred = False
-    error_message = ""
-    button_clicked = False
-
-    def generate_plot(text_input, upper_increment, lower_increment):
-        nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready, error_occurred, error_message
+    def generate_plot(session_id, text_input, upper_increment, lower_increment):
+        """Generate plot for a specific session"""
+        if session_id not in session_data:
+            session_data[session_id] = {
+                'ternary_plot': copy.deepcopy(LANDING_TERNARY),
+                'binary_plots': [copy.deepcopy(fig) for fig in LANDING_BINARIES],
+                'plot_ready': False,
+                'error_occurred': False,
+                'error_message': "",
+                'button_clicked': False
+            }
+        
+        session = session_data[session_id]
         
         try:
-            error_occurred = False
-            error_message = ""
+            session['error_occurred'] = False
+            session['error_message'] = ""
             
             text_input = text_input.split('-')
             
@@ -216,17 +370,23 @@ def create_gliqtern_app(requests_pathname_prefix):
             assert isinstance(binary_plot_2, go.Figure), "Binary plot 2 should be a Plotly Figure"
             assert isinstance(binary_plot_3, go.Figure), "Binary plot 3 should be a Plotly Figure"
 
-            plot_ready = True
+            # Store in session
+            session['ternary_plot'] = ternary_plot
+            session['binary_plots'] = [binary_plot_1, binary_plot_2, binary_plot_3]
+            session['plot_ready'] = True
             
         except Exception as e:
             print(f"Error occurred during plot generation: {str(e)}")
-            error_occurred = True
-            error_message = "Invalid or unsupported system, please try again."
-            plot_ready = True  
+            session['error_occurred'] = True
+            session['error_message'] = "Invalid or unsupported system, please try again."
+            session['plot_ready'] = True  
 
 
     app.layout = html.Div(
         [ 
+            # Hidden div to store session ID
+            dcc.Store(id='session-id', storage_type='session', data=str(uuid.uuid4())),
+            
             # Left panel for description and input fields
             html.Div(
                 [
@@ -237,7 +397,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                         ")"
                     ], style={'fontSize': '14px'}),
                     html.P(["This project is made possible by funding from the U.S. Department of Energy (DOE) Office of Science, Basic Energy Sciences Award No.      DE-SC0021130 and the National Science Foundation (NSF) Award No. OAC-2209423"], style={'fontSize': '14px'}),
-                    html.A("Binary Phase Diagram Map", href="https://viz.whsunresearch.group/gliquid/interactive-matrix.html", target="_blank", style={'fontSize': '14px'}),
+                    html.A("Binary Phase Diagram Map", href="/gliquid/interactive-matrix.html", target="_blank", style={'fontSize': '14px'}),
                     html.Br(),
                     html.Br(),
                     html.P(html.B("Usage Instructions:"), style={'fontSize': '14px'}),
@@ -345,21 +505,43 @@ def create_gliqtern_app(requests_pathname_prefix):
             Output('submit-val', 'disabled')],
         [Input('submit-val', 'n_clicks'),
             Input('interval-component', 'n_intervals')],
-        [State('text-input', 'value'), State('upper_increment', 'value'), State('lower_increment', 'value')]
+        [State('text-input', 'value'), 
+         State('upper_increment', 'value'), 
+         State('lower_increment', 'value'),
+         State('session-id', 'data')]
     )
-    def trigger_and_update_plot(n_clicks, n_intervals, text_input, upper_increment, lower_increment):
-        nonlocal ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, plot_ready, error_occurred, error_message, button_clicked
+    def trigger_and_update_plot(n_clicks, n_intervals, text_input, upper_increment, lower_increment, session_id):
+        # Periodic session cleanup
+        if n_intervals % 60 == 0:  # Every 60 seconds
+            cleanup_old_sessions()
+        
+        # Initialize session if it doesn't exist (new user)
+        if session_id not in session_data:
+            session_timestamps[session_id] = time.time()
+            session_data[session_id] = {
+                'ternary_plot': copy.deepcopy(LANDING_TERNARY),
+                'binary_plots': [copy.deepcopy(fig) for fig in LANDING_BINARIES],
+                'plot_ready': True,  # Landing page is ready immediately
+                'error_occurred': False,
+                'error_message': "",
+                'button_clicked': False
+            }
+        else:
+            # Update timestamp for active session
+            session_timestamps[session_id] = time.time()
+        
+        session = session_data[session_id]
 
         # Identify what triggered the callback
         ctx = dash.callback_context
 
         # If the button is clicked, start generating the plot in a separate thread
         if ctx.triggered and 'submit-val' in ctx.triggered[0]['prop_id']:
-            button_clicked = True
-            plot_ready = False
-            error_occurred = False
-            error_message = ""
-            thread = threading.Thread(target=generate_plot, args=(text_input, upper_increment, lower_increment))
+            session['button_clicked'] = True
+            session['plot_ready'] = False
+            session['error_occurred'] = False
+            session['error_message'] = ""
+            thread = threading.Thread(target=generate_plot, args=(session_id, text_input, upper_increment, lower_increment))
             thread.start()
             
             # Create animated loading message
@@ -371,25 +553,29 @@ def create_gliqtern_app(requests_pathname_prefix):
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, loading_message, False, True
 
         # If the interval triggered the callback, check if the plot is ready
-        if plot_ready:
-            if error_occurred:
+        if session['plot_ready']:
+            if session['error_occurred']:
                 # Return empty plots and show error message
                 empty_fig = go.Figure()
-                return empty_fig, empty_fig, empty_fig, empty_fig, error_message, True, False
+                return empty_fig, empty_fig, empty_fig, empty_fig, session['error_message'], True, False
             else:
-                # Return successful plots and clear message
-                return ternary_plot, binary_plot_1, binary_plot_2, binary_plot_3, "", True, False
+                # Return the plots from session data
+                binary_plots = session['binary_plots']
+                return (session['ternary_plot'], binary_plots[0], binary_plots[1], binary_plots[2], 
+                       "", True, False)
 
         # While waiting, show loading animation only if button was clicked
-        if button_clicked:
+        if session['button_clicked']:
             loading_message = html.Div([
                 html.Span("Takes up to 2 minutes to generate plot"),
                 html.Div(className="loading-spinner", style={'marginLeft': '8px'})
             ], style={'display': 'flex', 'alignItems': 'center', 'fontSize': '13px'})
             return dash.no_update, dash.no_update, dash.no_update, dash.no_update, loading_message, False, True
         else:
-            # Initial state - no loading message
-            return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Enter input and click 'Generate Plot' to see the result.", False, False
+            # Initial state - return landing plots
+            binary_plots = session['binary_plots']
+            return (session['ternary_plot'], binary_plots[0], binary_plots[1], binary_plots[2], 
+                   "Enter input and click 'Generate Plot' to see the result.", False, False)
 
     return app
 
