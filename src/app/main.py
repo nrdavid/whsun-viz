@@ -26,9 +26,17 @@ def redirect_to_gliq_im():
 def redirect_to_test_web():
     return RedirectResponse(url="/cogito/bond_plots.html")
 
-@app.get("/vr")
+@app.get("/ternary")
 def redirect_to_ternary_phase_diagram():
-    return RedirectResponse(url="/vr/ternary.html")
+    return RedirectResponse(url="/vr/ternary/ternary.html")
+
+@app.get("/fermi")
+def redirect_to_fermi_surface():
+    return RedirectResponse(url="/vr/fermi/index.html")
+
+@app.get("/tomography")
+def redirect_to_tomography():
+    return RedirectResponse(url="/vr/tomography/index.html")
 
 
 dash_app_rsm = create_rsm_app(requests_pathname_prefix="/rsm/")
