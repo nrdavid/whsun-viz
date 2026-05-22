@@ -1,0 +1,354 @@
+{
+    "material": "MgB2",
+    "source_file": "MgB2/vasprun.xml",
+    "structure_source": "pymatgen BandStructure.structure used by ifermi",
+    "cell_type": "input",
+    "crystallographic_cell_type": "input",
+    "standardization": {
+        "method": "none",
+        "symprec": 0.01
+    },
+    "formula": "Mg1 B2",
+    "reduced_formula": "MgB2",
+    "lattice": {
+        "matrix": [
+            [
+                3.0857791,
+                -0.0,
+                0.0
+            ],
+            [
+                -1.54288955,
+                2.67236313,
+                0.0
+            ],
+            [
+                -0.0,
+                -0.0,
+                3.49337366
+            ]
+        ],
+        "abc_angstrom": [
+            3.0857791,
+            3.08577913,
+            3.49337366
+        ],
+        "angles_degrees": [
+            90.0,
+            90.0,
+            119.99999964
+        ],
+        "volume_angstrom3": 28.80748509,
+        "reciprocal_lattice_matrix": [
+            [
+                2.036174691564794,
+                1.1755859891652498,
+                0.0
+            ],
+            [
+                0.0,
+                2.3511719783304996,
+                0.0
+            ],
+            [
+                0.0,
+                0.0,
+                1.7986009853808727
+            ]
+        ]
+    },
+    "sites": [
+        {
+            "index": 0,
+            "label": "Mg0",
+            "element": "Mg",
+            "species": [
+                {
+                    "element": "Mg",
+                    "occupancy": 1.0
+                }
+            ],
+            "frac_coords": [
+                -0.0,
+                0.0,
+                -0.0
+            ],
+            "cart_coords_angstrom": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "wyckoff": "a",
+            "equivalent_atom": 0,
+            "site_symmetry": "6/mmm"
+        },
+        {
+            "index": 1,
+            "label": "B1",
+            "element": "B",
+            "species": [
+                {
+                    "element": "B",
+                    "occupancy": 1.0
+                }
+            ],
+            "frac_coords": [
+                0.333333,
+                0.666667,
+                0.5
+            ],
+            "cart_coords_angstrom": [
+                -1.54e-06,
+                1.78157631,
+                1.74668683
+            ],
+            "wyckoff": "d",
+            "equivalent_atom": 1,
+            "site_symmetry": "-6m2"
+        },
+        {
+            "index": 2,
+            "label": "B2",
+            "element": "B",
+            "species": [
+                {
+                    "element": "B",
+                    "occupancy": 1.0
+                }
+            ],
+            "frac_coords": [
+                0.666667,
+                0.333333,
+                0.5
+            ],
+            "cart_coords_angstrom": [
+                1.54289109,
+                0.89078682,
+                1.74668683
+            ],
+            "wyckoff": "d",
+            "equivalent_atom": 1,
+            "site_symmetry": "-6m2"
+        }
+    ],
+    "symmetry": {
+        "space_group_symbol": "P6/mmm",
+        "space_group_number": 191,
+        "crystal_system": "hexagonal",
+        "point_group_symbol": "6/mmm",
+        "hall_symbol": "-P 6 2"
+    },
+    "bonds": [
+        {
+            "from_site_index": 0,
+            "to_site_index": 1,
+            "to_site_image": [
+                0,
+                -1,
+                -1
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 1,
+            "to_site_image": [
+                0,
+                -1,
+                0
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 2,
+            "to_site_image": [
+                -1,
+                0,
+                0
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 2,
+            "to_site_image": [
+                -1,
+                0,
+                -1
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 1,
+            "to_site_image": [
+                -1,
+                -1,
+                0
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 2,
+            "to_site_image": [
+                0,
+                0,
+                -1
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 2,
+            "to_site_image": [
+                0,
+                0,
+                0
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": false
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 1,
+            "to_site_image": [
+                -1,
+                -1,
+                -1
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 2,
+            "to_site_image": [
+                -1,
+                -1,
+                0
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 1,
+            "to_site_image": [
+                0,
+                0,
+                0
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": false
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 2,
+            "to_site_image": [
+                -1,
+                -1,
+                -1
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 0,
+            "to_site_index": 1,
+            "to_site_image": [
+                0,
+                0,
+                -1
+            ],
+            "from_element": "Mg",
+            "to_element": "B",
+            "distance_angstrom": 2.49497885,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 1,
+            "to_site_index": 2,
+            "to_site_image": [
+                -1,
+                0,
+                0
+            ],
+            "from_element": "B",
+            "to_element": "B",
+            "distance_angstrom": 1.78157362,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 1,
+            "to_site_index": 2,
+            "to_site_image": [
+                0,
+                1,
+                0
+            ],
+            "from_element": "B",
+            "to_element": "B",
+            "distance_angstrom": 1.78157362,
+            "weight": 1.0,
+            "periodic": true
+        },
+        {
+            "from_site_index": 1,
+            "to_site_index": 2,
+            "to_site_image": [
+                0,
+                0,
+                0
+            ],
+            "from_element": "B",
+            "to_element": "B",
+            "distance_angstrom": 1.78157362,
+            "weight": 1.0,
+            "periodic": false
+        }
+    ],
+    "bond_note": "Bonds are estimated with pymatgen.analysis.local_env.CrystalNN and are intended as a rendering aid."
+}
