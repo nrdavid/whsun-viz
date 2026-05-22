@@ -26,6 +26,10 @@ def redirect_to_gliq_im():
 def redirect_to_test_web():
     return RedirectResponse(url="/cogito/bond_plots.html")
 
+@app.get("/vr")
+def redirect_to_vr_menu():
+    return RedirectResponse(url="/vr/menu.html")
+
 @app.get("/ternary")
 def redirect_to_ternary_phase_diagram():
     return RedirectResponse(url="/vr/ternary/ternary.html")
