@@ -1,8 +1,194 @@
 <!doctype html>
-<html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VR Projects</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0b0c10;
+      color: #f5f7fb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      display: grid;
+      align-items: center;
+      padding: clamp(24px, 5vw, 64px);
+      background:
+        linear-gradient(135deg, rgba(63, 185, 167, 0.16), transparent 34%),
+        linear-gradient(315deg, rgba(242, 193, 78, 0.12), transparent 36%),
+        #0b0c10;
+    }
+
+    main {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 22px;
+      color: #ffffff;
+      font-size: clamp(2rem, 4vw, 3.4rem);
+      font-weight: 760;
+      line-height: 1;
+    }
+
+    .project-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: clamp(16px, 2.4vw, 28px);
+    }
+
+    .project-card {
+      position: relative;
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid rgba(245, 247, 251, 0.16);
+      border-radius: 8px;
+      aspect-ratio: 4 / 3;
+      background: #14171d;
+      color: inherit;
+      text-decoration: none;
+      box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+      opacity: 1;
+      transform: translateY(0);
+      animation: card-enter 520ms ease backwards;
+      outline: none;
+      transition: border-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
+    }
+
+    .project-card:nth-child(2) {
+      animation-delay: 90ms;
+    }
+
+    .project-card:nth-child(3) {
+      animation-delay: 180ms;
+    }
+
+    .project-card::after {
+      position: absolute;
+      inset: auto 0 0;
+      height: 46%;
+      content: "";
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
+      pointer-events: none;
+    }
+
+    .project-card img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scale(1);
+      transition: transform 220ms ease, filter 220ms ease;
+    }
+
+    .project-title {
+      position: absolute;
+      right: 18px;
+      bottom: 16px;
+      left: 18px;
+      z-index: 1;
+      margin: 0;
+      color: #ffffff;
+      font-size: clamp(1rem, 1.5vw, 1.35rem);
+      font-weight: 720;
+      line-height: 1.15;
+      text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
+    }
+
+    .project-card:hover,
+    .project-card:focus-visible {
+      transform: translateY(-6px);
+      border-color: rgba(63, 185, 167, 0.74);
+      box-shadow: 0 26px 84px rgba(0, 0, 0, 0.38);
+    }
+
+    .project-card:hover img,
+    .project-card:focus-visible img {
+      filter: saturate(1.08) contrast(1.04);
+      transform: scale(1.045);
+    }
+
+    .project-card:focus-visible {
+      outline: 3px solid #f2c14e;
+      outline-offset: 4px;
+    }
+
+    @keyframes card-enter {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 840px) {
+      body {
+        align-items: start;
+      }
+
+      .project-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .project-card {
+        aspect-ratio: 16 / 9;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-delay: 0ms !important;
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 1ms !important;
+      }
+
+      .project-card {
+        opacity: 1;
+        transform: none;
+      }
+    }
+  </style>
+</head>
 <body>
-<a href="/vr/ternary/ternary.html">Ternary Phase Diagram</a><br>
-<a href="/vr/fermi/index.html">Fermi Surface</a><br>
-<a href="/vr/tomography/index.html">APT Tomography VR</a>
+  <main>
+    <h1>Sun Research Group VR Projects</h1>
+    <nav class="project-grid" aria-label="VR projects">
+      <a class="project-card" href="/vr/ternary" aria-label="Open Ternary Phase Diagram VR project">
+        <img src="./ternary.PNG" alt="Preview of the ternary phase diagram VR project">
+        <span class="project-title">Ternary Phase Diagram</span>
+      </a>
+      <a class="project-card" href="/vr/fermi" aria-label="Open Fermi Surface VR project">
+        <img src="./fermi.PNG" alt="Preview of the Fermi surface VR project">
+        <span class="project-title">Fermi Surface</span>
+      </a>
+      <a class="project-card" href="/vr/tomography" aria-label="Open APT Tomography VR project">
+        <img src="./tomography.PNG" alt="Preview of the APT tomography VR project">
+        <span class="project-title">APT Tomography VR</span>
+      </a>
+    </nav>
+  </main>
 </body>
 </html>
