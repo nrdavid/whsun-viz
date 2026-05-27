@@ -30,6 +30,18 @@ def redirect_to_test_web():
 def redirect_to_vr_menu():
     return RedirectResponse(url="/vr/menu.html")
 
+@app.get("/vr/ternary")
+def redirect_to_ternary_phase_diagram():
+    return RedirectResponse(url="/vr/ternary/ternary.html")
+
+@app.get("/vr/fermi")
+def redirect_to_fermi_surface():
+    return RedirectResponse(url="/vr/fermi/index.html")
+
+@app.get("/vr/tomography")
+def redirect_to_tomography():
+    return RedirectResponse(url="/vr/tomography/index.html")
+
 @app.get("/ternary")
 def redirect_to_ternary_phase_diagram():
     return RedirectResponse(url="/vr/ternary/ternary.html")
