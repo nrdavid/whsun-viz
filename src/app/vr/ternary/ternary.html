@@ -5,13 +5,552 @@
   <title>Al-Y-Cu Ternary Phase Diagram</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    /* Full-screen canvas with no scrollbars */
-    html,body { margin:0; height:100%; overflow:hidden; }
-    canvas { display:block; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: #111;
+      color: #f2f2f2;
+    }
+
+    body {
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #settings-panel {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      width: min(290px, calc(100vw - 24px));
+      max-height: calc(100vh - 24px);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 20;
+      pointer-events: auto;
+    }
+
+    .quick-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .quick-action-button {
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 10px;
+      background: rgba(90, 176, 255, 0.14);
+      color: #f4f8ff;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .quick-action-button:hover {
+      background: rgba(90, 176, 255, 0.22);
+    }
+
+    #settings-shell {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      background: rgba(17, 24, 39, 0.9);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+      overflow: hidden;
+    }
+
+    #settings-shell > summary,
+    .settings-block > summary {
+      cursor: pointer;
+      list-style: none;
+    }
+
+    #settings-shell > summary {
+      padding: 10px 12px;
+      font-size: 0.86rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    #settings-shell > summary::-webkit-details-marker,
+    .settings-block > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .settings-content {
+      padding: 0 12px 12px;
+      overflow: auto;
+      max-height: calc(100vh - 96px);
+    }
+
+    .settings-block {
+      margin-top: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .settings-block > summary {
+      padding: 10px 12px;
+      font-size: 0.81rem;
+      font-weight: 600;
+    }
+
+    .settings-grid {
+      display: grid;
+      gap: 8px;
+      padding: 0 12px 12px;
+    }
+
+    .settings-subtitle {
+      margin-top: 4px;
+      margin-bottom: 2px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #8ec5ff;
+    }
+
+    .settings-copy {
+      margin: 0;
+      padding: 0 12px 4px;
+      font-size: 0.76rem;
+      line-height: 1.35;
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .setting-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 92px;
+      gap: 8px;
+      align-items: center;
+      font-size: 0.81rem;
+    }
+
+    .setting-row.checkbox-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .setting-row input,
+    .setting-row button {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .setting-row input[type="number"],
+    .setting-row input[type="text"] {
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background: rgba(8, 12, 20, 0.88);
+      color: #f4f8ff;
+      padding: 6px 8px;
+      font-size: 0.8rem;
+    }
+
+    .setting-row input[type="color"] {
+      height: 30px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      padding: 0;
+    }
+
+    .setting-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #5ab0ff;
+    }
+
+    .settings-primary-toggle {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(90, 176, 255, 0.24);
+      border-radius: 10px;
+      background: rgba(90, 176, 255, 0.08);
+    }
+
+    .settings-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .settings-actions button {
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background: rgba(90, 176, 255, 0.12);
+      color: #f4f8ff;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.78rem;
+    }
+
+    .settings-actions button:hover {
+      background: rgba(90, 176, 255, 0.2);
+    }
+
+    @media (max-width: 720px) {
+      #settings-panel {
+        top: auto;
+        left: 12px;
+        bottom: 12px;
+        width: auto;
+        max-height: 62vh;
+      }
+
+      .setting-row {
+        grid-template-columns: minmax(0, 1fr) 88px;
+      }
+    }
   </style>
-  <script type="module" crossorigin src="./assets/index-C4V5tgK5.js"></script>
+  <script type="module" crossorigin src="./assets/index-CZYnAEMX.js"></script>
 </head>
 <body>
-  <!-- Vite injects HMR scripts automatically; we only point to our entry -->
+  <aside id="settings-panel">
+    <div class="quick-actions">
+      <button id="reset-view-quick-action" class="quick-action-button" type="button">Reset View</button>
+      <button id="reset-all-quick-action" class="quick-action-button" type="button">Reset All</button>
+    </div>
+    <details id="settings-shell">
+      <summary>Advanced Settings</summary>
+      <div class="settings-content" id="settings-menu">
+        <label class="setting-row checkbox-row settings-primary-toggle">
+          <span>Load More Slices</span>
+          <input type="checkbox" data-setting="user.performance.loadAdditionalSlices" />
+        </label>
+        <p class="settings-copy">
+          Uses the denser 10 K slice stack instead of the lighter 20 K stack.
+        </p>
+
+        <div class="settings-actions">
+          <button type="button" data-reset="user">Reset User Tuning</button>
+          <button type="button" data-reset="debug">Reset Debug Settings</button>
+        </div>
+
+        <details class="settings-block">
+          <summary>User Tuning</summary>
+          <p class="settings-copy">
+            These are still secondary controls. The most common tools should stay in the lil-gui panel on the top right.
+          </p>
+          <div class="settings-grid">
+            <div class="settings-subtitle">Image Stack</div>
+            <label class="setting-row">
+              <span>Slice Spacing</span>
+              <input type="number" step="0.0001" data-setting="user.stack.spacing" />
+            </label>
+
+            <div class="settings-subtitle">Measurement</div>
+            <label class="setting-row">
+              <span>Measure Deadzone</span>
+              <input type="number" step="0.001" data-setting="user.measurement.deadzone" />
+            </label>
+            <label class="setting-row">
+              <span>Point Size</span>
+              <input type="number" step="0.001" data-setting="user.measurement.pointSize" />
+            </label>
+            <label class="setting-row">
+              <span>Label Size</span>
+              <input type="number" step="0.01" data-setting="user.measurement.labelSize" />
+            </label>
+            <label class="setting-row">
+              <span>Label Offset Y</span>
+              <input type="number" step="0.01" data-setting="user.measurement.labelOffset.y" />
+            </label>
+            <label class="setting-row">
+              <span>Point Color</span>
+              <input type="color" data-setting="user.measurement.pointColor" />
+            </label>
+            <label class="setting-row">
+              <span>Line Color</span>
+              <input type="color" data-setting="user.measurement.lineColor" />
+            </label>
+            <label class="setting-row">
+              <span>Text Color</span>
+              <input type="color" data-setting="user.measurement.textColor" />
+            </label>
+            <label class="setting-row">
+              <span>Billboard Color</span>
+              <input type="color" data-setting="user.measurement.backgroundColor" />
+            </label>
+
+            <div class="settings-subtitle">Curve Tool</div>
+            <label class="setting-row">
+              <span>Point Spacing</span>
+              <input type="number" step="0.001" data-setting="user.curve.pointSpacing" />
+            </label>
+            <label class="setting-row">
+              <span>Seed Radius</span>
+              <input type="number" step="0.001" data-setting="user.curve.pointRadius" />
+            </label>
+            <label class="setting-row">
+              <span>Tube Radius</span>
+              <input type="number" step="0.001" data-setting="user.curve.tubeRadius" />
+            </label>
+            <label class="setting-row">
+              <span>Curve Color</span>
+              <input type="color" data-setting="user.curve.color" />
+            </label>
+
+            <div class="settings-subtitle">VR Controls</div>
+            <label class="setting-row">
+              <span>Move Speed</span>
+              <input type="number" step="0.1" data-setting="user.controls.moveSpeed" />
+            </label>
+            <label class="setting-row">
+              <span>Zoom Speed</span>
+              <input type="number" step="0.1" data-setting="user.controls.zoomSpeed" />
+            </label>
+            <label class="setting-row">
+              <span>Rotate Speed</span>
+              <input type="number" step="0.1" data-setting="user.controls.rotateSpeed" />
+            </label>
+            <label class="setting-row">
+              <span>Thumbstick Deadzone</span>
+              <input type="number" step="0.001" data-setting="user.controls.deadzone" />
+            </label>
+            <label class="setting-row">
+              <span>Minimum Scale</span>
+              <input type="number" step="0.1" data-setting="user.controls.minScale" />
+            </label>
+            <label class="setting-row">
+              <span>Maximum Scale</span>
+              <input type="number" step="0.1" data-setting="user.controls.maxScale" />
+            </label>
+            <label class="setting-row checkbox-row">
+              <span>Reverse Pan</span>
+              <input type="checkbox" data-setting="user.controls.reversePan" />
+            </label>
+          </div>
+        </details>
+
+        <details class="settings-block">
+          <summary>Debug Settings (Calibration / Developer Only)</summary>
+          <p class="settings-copy">
+            These values affect scene calibration and developer-facing tuning. They are not intended for regular users.
+          </p>
+          <div class="settings-grid">
+            <div class="settings-subtitle">Stack Calibration</div>
+            <label class="setting-row">
+              <span>Slice Size</span>
+              <input type="number" step="0.01" data-setting="debug.stack.size" />
+            </label>
+            <label class="setting-row">
+              <span>Offset X</span>
+              <input type="number" step="0.01" data-setting="debug.stack.offset.x" />
+            </label>
+            <label class="setting-row">
+              <span>Offset Y</span>
+              <input type="number" step="0.01" data-setting="debug.stack.offset.y" />
+            </label>
+            <label class="setting-row">
+              <span>Offset Z</span>
+              <input type="number" step="0.01" data-setting="debug.stack.offset.z" />
+            </label>
+            <label class="setting-row">
+              <span>Texture Anisotropy</span>
+              <input type="number" step="1" data-setting="debug.stack.textureAnisotropy" />
+            </label>
+
+            <div class="settings-subtitle">Element Labels</div>
+            <label class="setting-row">
+              <span>Label Scale</span>
+              <input type="number" step="0.01" data-setting="debug.labels.scale" />
+            </label>
+            <label class="setting-row">
+              <span>Label Color</span>
+              <input type="color" data-setting="debug.labels.textColor" />
+            </label>
+            <label class="setting-row">
+              <span>Cu X</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Cu.x" />
+            </label>
+            <label class="setting-row">
+              <span>Cu Y</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Cu.y" />
+            </label>
+            <label class="setting-row">
+              <span>Cu Z</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Cu.z" />
+            </label>
+            <label class="setting-row">
+              <span>Al X</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Al.x" />
+            </label>
+            <label class="setting-row">
+              <span>Al Y</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Al.y" />
+            </label>
+            <label class="setting-row">
+              <span>Al Z</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Al.z" />
+            </label>
+            <label class="setting-row">
+              <span>Y X</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Y.x" />
+            </label>
+            <label class="setting-row">
+              <span>Y Y</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Y.y" />
+            </label>
+            <label class="setting-row">
+              <span>Y Z</span>
+              <input type="number" step="0.01" data-setting="debug.labels.positions.Y.z" />
+            </label>
+
+            <div class="settings-subtitle">Camera</div>
+            <label class="setting-row">
+              <span>Ortho Divisor</span>
+              <input type="number" step="1" data-setting="debug.camera.orthoDivisor" />
+            </label>
+            <label class="setting-row">
+              <span>Initial Camera X</span>
+              <input type="number" step="0.1" data-setting="debug.camera.initialPosition.x" />
+            </label>
+            <label class="setting-row">
+              <span>Initial Camera Y</span>
+              <input type="number" step="0.1" data-setting="debug.camera.initialPosition.y" />
+            </label>
+            <label class="setting-row">
+              <span>Initial Camera Z</span>
+              <input type="number" step="0.1" data-setting="debug.camera.initialPosition.z" />
+            </label>
+            <label class="setting-row">
+              <span>Exit Camera X</span>
+              <input type="number" step="0.1" data-setting="debug.camera.exitPosition.x" />
+            </label>
+            <label class="setting-row">
+              <span>Exit Camera Y</span>
+              <input type="number" step="0.1" data-setting="debug.camera.exitPosition.y" />
+            </label>
+            <label class="setting-row">
+              <span>Exit Camera Z</span>
+              <input type="number" step="0.1" data-setting="debug.camera.exitPosition.z" />
+            </label>
+
+            <div class="settings-subtitle">VR Placement</div>
+            <label class="setting-row">
+              <span>Start Camera X</span>
+              <input type="number" step="0.1" data-setting="debug.vr.startCameraPosition.x" />
+            </label>
+            <label class="setting-row">
+              <span>Start Camera Y</span>
+              <input type="number" step="0.1" data-setting="debug.vr.startCameraPosition.y" />
+            </label>
+            <label class="setting-row">
+              <span>Start Camera Z</span>
+              <input type="number" step="0.1" data-setting="debug.vr.startCameraPosition.z" />
+            </label>
+            <label class="setting-row">
+              <span>GUI X</span>
+              <input type="number" step="0.1" data-setting="debug.vr.guiPosition.x" />
+            </label>
+            <label class="setting-row">
+              <span>GUI Y</span>
+              <input type="number" step="0.1" data-setting="debug.vr.guiPosition.y" />
+            </label>
+            <label class="setting-row">
+              <span>GUI Z</span>
+              <input type="number" step="0.1" data-setting="debug.vr.guiPosition.z" />
+            </label>
+            <label class="setting-row">
+              <span>GUI Rot X</span>
+              <input type="number" step="0.1" data-setting="debug.vr.guiRotation.x" />
+            </label>
+            <label class="setting-row">
+              <span>GUI Rot Y</span>
+              <input type="number" step="0.1" data-setting="debug.vr.guiRotation.y" />
+            </label>
+            <label class="setting-row">
+              <span>GUI Rot Z</span>
+              <input type="number" step="0.1" data-setting="debug.vr.guiRotation.z" />
+            </label>
+            <label class="setting-row">
+              <span>GUI Scale</span>
+              <input type="number" step="0.1" data-setting="debug.vr.guiScale" />
+            </label>
+
+            <div class="settings-subtitle">Slice Plane Presets</div>
+            <label class="setting-row">
+              <span>Helper Size</span>
+              <input type="number" step="0.1" data-setting="debug.slicePlanes.helperSize" />
+            </label>
+            <label class="setting-row">
+              <span>Fixed Plane Color</span>
+              <input type="color" data-setting="debug.slicePlanes.fixedColor" />
+            </label>
+            <label class="setting-row">
+              <span>Free Plane Color</span>
+              <input type="color" data-setting="debug.slicePlanes.freeColor" />
+            </label>
+            <label class="setting-row">
+              <span>Cu-Al Constant</span>
+              <input type="number" step="0.001" data-setting="debug.slicePlanes.presets.cuAl" />
+            </label>
+            <label class="setting-row">
+              <span>Al-Y Constant</span>
+              <input type="number" step="0.001" data-setting="debug.slicePlanes.presets.alY" />
+            </label>
+            <label class="setting-row">
+              <span>Cu-Y Constant</span>
+              <input type="number" step="0.001" data-setting="debug.slicePlanes.presets.cuY" />
+            </label>
+            <label class="setting-row">
+              <span>Temperature Constant</span>
+              <input type="number" step="0.001" data-setting="debug.slicePlanes.presets.temperature" />
+            </label>
+            <label class="setting-row">
+              <span>Free Plane Constant</span>
+              <input type="number" step="0.001" data-setting="debug.slicePlanes.presets.freeRotate" />
+            </label>
+
+            <div class="settings-subtitle">Controller Visuals</div>
+            <label class="setting-row">
+              <span>Sphere Radius</span>
+              <input type="number" step="0.001" data-setting="debug.controllers.sphereRadius" />
+            </label>
+            <label class="setting-row">
+              <span>Sphere Color</span>
+              <input type="color" data-setting="debug.controllers.sphereColor" />
+            </label>
+            <label class="setting-row">
+              <span>Sphere Opacity</span>
+              <input type="number" step="0.05" min="0" max="1" data-setting="debug.controllers.sphereOpacity" />
+            </label>
+            <label class="setting-row">
+              <span>Pointer Length</span>
+              <input type="number" step="0.1" data-setting="debug.controllers.pointerLength" />
+            </label>
+
+            <div class="settings-subtitle">Scene</div>
+            <label class="setting-row">
+              <span>Sky Color</span>
+              <input type="color" data-setting="debug.scene.skyColor" />
+            </label>
+            <label class="setting-row">
+              <span>Ground Color</span>
+              <input type="color" data-setting="debug.scene.groundColor" />
+            </label>
+            <label class="setting-row">
+              <span>Light Intensity</span>
+              <input type="number" step="0.1" data-setting="debug.scene.lightIntensity" />
+            </label>
+          </div>
+        </details>
+      </div>
+    </details>
+  </aside>
+
 </body>
 </html>
