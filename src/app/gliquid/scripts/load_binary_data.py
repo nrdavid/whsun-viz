@@ -10,10 +10,12 @@ ORCID: https://orcid.org/0009-0004-6334-9426
 from __future__ import annotations
 
 import os
+import sys
 import json
 import numpy as np
 
 from emmet.core.thermo import ThermoType
+from emmet.core.utils import jsanitize
 from mp_api.client import MPRester as MPRester
 from mpds_client import MPDSDataRetrieval, MPDSDataTypes, APIError
 from pymatgen.core import Composition, Element, Structure
@@ -21,6 +23,12 @@ from pymatgen.entries.computed_entries import ComputedEntry
 from pymatgen.analysis.phase_diagram import PhaseDiagram, CompoundPhaseDiagram
 from pymatgen.entries.mixing_scheme import MaterialsProjectDFTMixingScheme
 import gliquid.scripts.config as config
+
+# Compatibility shim for old pymatgen module paths
+# The MP API returns monty-encoded data with old module paths (pymatgen.core.entries)
+# but newer pymatgen versions use pymatgen.entries.computed_entries
+import pymatgen.entries.computed_entries
+sys.modules['pymatgen.core.entries'] = pymatgen.entries.computed_entries
 
 melt_enthalpies = json.load(open(config.fusion_enthalpies_file)) if os.path.exists(config.fusion_enthalpies_file) else {}
 melt_temps = json.load(open(config.fusion_temps_file)) if os.path.exists(config.fusion_temps_file) else {}
@@ -40,6 +48,28 @@ if missing_files:
         f"The following data files were not loaded correctly: {', '.join(missing_files)}. "
         f"Please ensure the files exist in the data directory '{config.data_dir}'."
     )
+
+
+def strip_potcar_data(obj):
+    """
+    Recursively remove potcar_spec and other POTCAR-related data from nested dicts/lists.
+    PotcarSpec objects can cause JSON serialization errors and are not needed for most analyses.
+    """
+    if isinstance(obj, dict):
+        # Remove potcar_spec and related keys entirely
+        cleaned = {}
+        for k, v in obj.items():
+            # Skip POTCAR-related keys and monty metadata
+            if k in ('potcar_spec', 'run_type', 'potcar', 'potcar_symbols'):
+                continue
+            # Recursively clean nested structures
+            cleaned[k] = strip_potcar_data(v)
+        return cleaned
+    elif isinstance(obj, (list, tuple)):
+        return [strip_potcar_data(item) for item in obj]
+    else:
+        return obj
+
 
 def validate_and_format_binary_system(input) -> tuple[list[str], str, bool]:
     """
@@ -415,7 +445,7 @@ def _get_dft_entries_from_components(components: list[str], dft_type: str) -> li
         """Helper function to fetch entries from API."""
         if not api_key:
             raise ValueError("NEW_MP_API_KEY not found in environment variables!")
-        with client_class(api_key) as MPR:
+        with client_class(api_key, monty_decode=False, use_document_model=False) as MPR:
             criteria = {'thermo_types': [thermo_type]} if thermo_type else {}
             return MPR.get_entries_in_chemsys(components, additional_criteria=criteria)
 
@@ -434,14 +464,9 @@ def _get_dft_entries_from_components(components: list[str], dft_type: str) -> li
     elif dft_type == 'R2SCAN':
         entries = scan_entries
 
-    computed_entry_dicts = [e.as_dict() for e in entries]
-
-    # Filter out Mg149 phase and remove run data to reduce cache size
-    computed_entry_dicts = [e for e in computed_entry_dicts if e['composition'].get('Mg', 0) != 149]
-    for e in computed_entry_dicts:
-        e.pop('data', None)
-
-    return computed_entry_dicts
+    # Return live entry objects directly to avoid as_dict/json serialization failures on PotcarSpec.
+    # Downstream code in get_dft_convexhull handles both dict entries (cache path) and live objects.
+    return entries
 
 
 def get_dft_convexhull(input, dft_type='GGA',
@@ -491,6 +516,8 @@ def get_dft_convexhull(input, dft_type='GGA',
     if os.path.exists(dft_entries_file):
         with open(dft_entries_file, "r") as f:
             computed_entry_dicts = json.load(f)
+        # Strip potcar_spec from cached data too (in case it was cached before stripping was added)
+        computed_entry_dicts = strip_potcar_data(computed_entry_dicts)
         if verbose:
             print("Loading cached DFT entry data.")
     else:
@@ -500,15 +527,20 @@ def get_dft_convexhull(input, dft_type='GGA',
         # with open(dft_entries_file, "w") as f:
         #     json.dump(computed_entry_dicts, f)
 
+    if computed_entry_dicts and isinstance(computed_entry_dicts[0], dict):
+        entries_for_pd = [ComputedEntry.from_dict(e) for e in computed_entry_dicts]
+    else:
+        entries_for_pd = computed_entry_dicts
+
     if any(len(Composition(c).elements) > 1 for c in components):
         pd = CompoundPhaseDiagram(
             terminal_compositions=[Composition(c) for c in components],
-            entries=[ComputedEntry.from_dict(e) for e in computed_entry_dicts],
+            entries=entries_for_pd,
         )
     else:
         pd = PhaseDiagram(
             elements=[Element(c) for c in components],
-            entries=[ComputedEntry.from_dict(e) for e in computed_entry_dicts],
+            entries=entries_for_pd,
         )
     if verbose:
         print(f"{len(pd.stable_entries) - 2} stable line compound(s) on the DFT convex hull.")
@@ -516,17 +548,31 @@ def get_dft_convexhull(input, dft_type='GGA',
     stable_entry_atomic_volumes = {}
 
     if inc_structure_data:
-        for entry in pd.stable_entries:
-            entries_matching_composition = [
-                e
-                for e in computed_entry_dicts
-                if Composition.from_dict(e["composition"]) == entry.composition
-            ]
-            hull_stable_entry = min(entries_matching_composition, key=lambda x: x["energy"])
-            hull_stable_structure = Structure.from_dict(hull_stable_entry["structure"])
-            ucell_volume = hull_stable_structure.volume  # Volume in cubic angstroms
-            ucell_n_atoms = hull_stable_structure.num_sites  # Number of atoms per structure
-            atomic_volume = ucell_volume / ucell_n_atoms  # Atomic volume in cubic angstroms per atom
-            stable_entry_atomic_volumes[entry.composition.reduced_formula] = atomic_volume
+        if computed_entry_dicts and isinstance(computed_entry_dicts[0], dict):
+            for entry in pd.stable_entries:
+                entries_matching_composition = [
+                    e for e in computed_entry_dicts
+                    if Composition.from_dict(e["composition"]) == entry.composition
+                ]
+                hull_stable_entry = min(entries_matching_composition, key=lambda x: x["energy"])
+                hull_stable_structure = Structure.from_dict(hull_stable_entry["structure"])
+                ucell_volume = hull_stable_structure.volume  # Volume in cubic angstroms
+                ucell_n_atoms = hull_stable_structure.num_sites  # Number of atoms per structure
+                atomic_volume = ucell_volume / ucell_n_atoms  # Atomic volume in cubic angstroms per atom
+                stable_entry_atomic_volumes[entry.composition.reduced_formula] = atomic_volume
+        else:
+            for entry in pd.stable_entries:
+                entries_matching_composition = [
+                    e for e in computed_entry_dicts
+                    if e.composition == entry.composition and getattr(e, "structure", None) is not None
+                ]
+                if not entries_matching_composition:
+                    continue
+                hull_stable_entry = min(entries_matching_composition, key=lambda x: x.energy)
+                hull_stable_structure = hull_stable_entry.structure
+                ucell_volume = hull_stable_structure.volume  # Volume in cubic angstroms
+                ucell_n_atoms = hull_stable_structure.num_sites  # Number of atoms per structure
+                atomic_volume = ucell_volume / ucell_n_atoms  # Atomic volume in cubic angstroms per atom
+                stable_entry_atomic_volumes[entry.composition.reduced_formula] = atomic_volume
 
     return pd, stable_entry_atomic_volumes

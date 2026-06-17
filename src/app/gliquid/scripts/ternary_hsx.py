@@ -15,7 +15,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from typing import List
-from emmet.core.utils import jsanitize
 from mp_api.client import MPRester
 from pymatgen.analysis.phase_diagram import PhaseDiagram
 from pymatgen.core.composition import Element, Composition
@@ -26,8 +25,38 @@ from copy import deepcopy
 from gliquid.scripts.config import fusion_enthalpies_file, fusion_temps_file
 from gliquid.scripts.binary import BinaryLiquid, linear_expr, exponential_expr, combined_expr
 
+# Compatibility shim for old pymatgen module paths
+# The MP API returns monty-encoded data with old module paths (pymatgen.core.entries)
+# but newer pymatgen versions use pymatgen.entries.computed_entries
+import pymatgen.entries.computed_entries
+sys.modules['pymatgen.core.entries'] = pymatgen.entries.computed_entries
+
 # mpr = MPRester(MAPI_KEY)
-mpr = MPRester(os.getenv("NEW_MP_API_KEY"))  # Use environment variable for MP_API_KEY
+# Critical: monty_decode=True triggers mp_api internal entry.as_dict(), which fails on PotcarSpec
+# with newer pymatgen/mp_api combos. Keep monty_decode=False here.
+mpr = MPRester(os.getenv("NEW_MP_API_KEY"), monty_decode=False, use_document_model=False)  # Use environment variable for MP_API_KEY
+
+
+def strip_potcar_data(obj):
+    """
+    Recursively remove potcar_spec and other POTCAR-related data from nested dicts/lists.
+    PotcarSpec objects can cause JSON serialization errors and are not needed for most analyses.
+    """
+    if isinstance(obj, dict):
+        # Remove potcar_spec and related keys entirely
+        cleaned = {}
+        for k, v in obj.items():
+            # Skip POTCAR-related keys and monty metadata
+            if k in ('potcar_spec', 'run_type', 'potcar', 'potcar_symbols'):
+                continue
+            # Recursively clean nested structures
+            cleaned[k] = strip_potcar_data(v)
+        return cleaned
+    elif isinstance(obj, (list, tuple)):
+        return [strip_potcar_data(item) for item in obj]
+    else:
+        return obj
+
 
 # Define all required symbols
 R = 8.314  # J/(mol*K), universal gas constant
@@ -415,12 +444,13 @@ class ternary_interpolation:
             print("Loading ternary DFT energies from cache")
             with open(json_path, 'r') as f:
                 sanitized_entries = json.load(f)
+            # Strip potcar_spec from cached data too (in case it was cached before stripping was added)
+            sanitized_entries = strip_potcar_data(sanitized_entries)
+            return sanitized_entries
         else:
             print("Reading ternary DFT energies from MP")
-            entries = mpr.get_entries_in_chemsys(sys)
-            sanitized_entries = jsanitize(entries)
-        
-        return sanitized_entries
+            # Return live entry objects directly to avoid JSON serialization of PotcarSpec.
+            return mpr.get_entries_in_chemsys(sys)
 
     def get_ternary_form_en(self, sys):
         # get the formation energies of the stable phases in the ternary system
@@ -430,7 +460,12 @@ class ternary_interpolation:
             el = Element(val)
             sys_eles.append(el)
         entries_init = self.get_phasedia_entries(sys)
-        entries = [ComputedStructureEntry.from_dict(e) for e in entries_init]
+        if entries_init and isinstance(entries_init[0], dict):
+            # Cached data path (JSON dicts)
+            entries = [ComputedStructureEntry.from_dict(e) for e in entries_init]
+        else:
+            # Live MP path (already-decoded ComputedEntry/ComputedStructureEntry objects)
+            entries = entries_init
         if "Mg" in sys:
             # filter out entries where the composition fraction of Mg is 149
             entries = [e for e in entries if e.composition.get("Mg", 0) != 149]

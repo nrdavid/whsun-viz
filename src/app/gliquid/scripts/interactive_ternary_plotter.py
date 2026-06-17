@@ -16,6 +16,7 @@ import gliquid.scripts.config as cfg
 import pandas as pd
 import json
 import uuid
+import traceback
 from pathlib import Path
 import copy
 
@@ -141,6 +142,7 @@ def generate_landing_system():
         
     except Exception as e:
         print(f"Error generating landing system: {e}")
+        traceback.print_exc()
         # Return empty figures as fallback
         return go.Figure(), [go.Figure(), go.Figure(), go.Figure()]
 
@@ -377,6 +379,7 @@ def create_gliqtern_app(requests_pathname_prefix):
             
         except Exception as e:
             print(f"Error occurred during plot generation: {str(e)}")
+            traceback.print_exc()
             session['error_occurred'] = True
             session['error_message'] = "Invalid or unsupported system, please try again."
             session['plot_ready'] = True  
