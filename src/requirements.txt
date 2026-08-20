@@ -1,50 +1,16 @@
 # whsun-viz image requirements.
-#
-# One image serves every mount: /gliquid/ (static + a Dash ternary plotter),
-# /cogito-cohp/, /rsm/ and /tb/ (Dash), plus the static /cogito/ and /vr/ trees.
-# (The COHP app is mounted at /cogito-cohp/ -- there is no /cohp/ URL.)
-# Everything below is shared, so a bound here affects all of them.
-#
-# WHY THE pydantic-2 JUMP: mp-api and emmet-core are pydantic-2 only. That makes
-# `pydantic<2` and therefore `fastapi<0.69` impossible. Modern Starlette has REMOVED
-# `fastapi.middleware.wsgi.WSGIMiddleware`, so the ASGI->WSGI bridge for the Dash
-# sub-apps now comes from a2wsgi (see main.py).
 
-# --- the gliquid package ------------------------------------------------------
-# Replaces the vendored November-2025 fork that used to live in this app's own
-# scripts/ directory (phase_diagram.py, binary.py, load_binary_data.py, hsx.py,
-# config.py -- 7,096 lines).
-#
-# ##############################################################################
-# ## !! THE PIN BELOW IS A LOCAL-WHEEL PIN. DO NOT PUSH THIS FILE AS IT IS. !! ##
-# ##############################################################################
-#
-# `0.1.1.dev8+g24546dfb7` is a LOCAL DEVELOPMENT BUILD -- a hatch-vcs
-# `git describe` version off an unreleased commit. It exists only in the gitignored
-# ./wheels directory on the machine that built it. Consequences, in order of how
-# much they will hurt:
-#
-#   1. A CLEAN CLONE OF THIS REPO CANNOT BUILD THE IMAGE. There is no wheel to find
-#      and no such version on any index, so `pip install` fails outright. Anyone who
-#      clones this today must first rebuild the wheel with the recipe below.
-#   2. This version can never be resolved by anyone without the gliquid_python
-#      checkout at that exact commit, so CI and any other contributor are blocked.
-#
-# BEFORE PUSHING: cut a real gliquid release to PyPI and repoint this line at it
-# (e.g. `gliquid==0.1.1`), then delete the --find-links plumbing from the Dockerfile.
-# The user is deliberately holding this pin until two in-flight package fixes land, so
-# that ONE release covers them; do not repoint it piecemeal or bump it to another dev
-# build.
-#
-# Rebuild the wheel from the gliquid_python checkout with:
-#
-#     git clone <gliquid_python> /tmp/gliquid && cd /tmp/gliquid
-#     git checkout cache-layout            # 24546df; `git describe` -> v0.1.0-8-g24546df
-#     python -m build --wheel --outdir <whsun-viz>/src/wheels
-#
 # The clone is load-bearing: hatch-vcs derives the version from the git tag, and a
 # `git archive` (no .git) would silently stamp the 0.0.0 fallback instead.
-gliquid==0.1.1.dev8+g24546dfb7
+#
+# TEMPORARY, replaced by `gliquid==0.2.0` once that tag is published. This is a
+# pre-release wheel off cache-layout@0a853f8 so the container can be tested against the
+# code that BECOMES 0.2.0 -- the previous pin (0.1.1.dev8+g24546dfb7) predates the
+# ternary polymorph-ladder injection, so an image built on it renders elemental corners
+# at h_liq/s_liq instead of t_fusion and cannot exercise the fix at all. Verified wheel
+# contents: every module byte-identical to the working tree except the generated
+# _version.py, and models/ carries the v24.01 huber bundle 20260817_112204.
+gliquid==0.1.1.dev10+g0a853f833
 
 # --- ASGI / web stack ---------------------------------------------------------
 fastapi>=0.115,<1.0
@@ -64,7 +30,7 @@ dash_ag_grid>=31.0.1
 plotly>=5.24,<6
 
 # --- Scientific stack ---------------------------------------------------------
-# Kept explicit because the SIBLING apps (cohp, tb, rsm) import these directly; gliquid
+# cohp, tb, rsm import these directly; gliquid
 # carries its own floors and pip intersects. matplotlib's floor is raised to gliquid's
 # >=3.10 so the resolver settles here rather than backtracking.
 numpy>=1.26,<3
@@ -82,22 +48,9 @@ mp-api>=0.45.1
 # pymatgen no longer has, which breaks every live MP fetch. gliquid pins the same
 # bound; it is repeated here so removing it needs the same evidence twice.
 emmet-core>=0.84,<0.86
-#
-# mpds_client is DELIBERATELY ABSENT. It was here for the vendored fork's live MPDS
-# fetch. gliquid imports it lazily inside api.get_mpds_client(), which offline mode
-# reaches only after config.require_online() has already raised -- so in this image the
-# import can never happen. Re-adding it would also re-create the impression that this
-# container can talk to MPDS. It cannot: there is no key and no code path.
 
 # --- pymatgen optional backends actually reached by the sibling apps -----------
 # cohp/TBmodel.py and tb/nonorthTB.py both call pymatgen.symmetry.kpath.KPathSeek,
 # which is a no-op stub unless seekpath is installed.
 seekpath>=2.1.0
 phonopy>=2.17.1
-#
-# NOT LISTED, but installed anyway as HARD dependencies of gliquid 0.1.1.dev8:
-# scikit-learn, xgboost, shap, joblib, tqdm. The ternary app only reads
-# predicted_params.xlsx and never constructs ProductionModelRunner, so none of the ML
-# stack is exercised at runtime -- but gliquid declares them in `dependencies`, not in
-# an optional extra, so they cannot be excluded from this image without changing the
-# package. Recorded rather than worked around.

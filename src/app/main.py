@@ -1,23 +1,16 @@
+from pathlib import Path
 from typing import Union
 # Starlette removed fastapi.middleware.wsgi.WSGIMiddleware; a2wsgi provides the
 # ASGI->WSGI bridge these Dash/Flask sub-apps are mounted through.
 from a2wsgi import WSGIMiddleware
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
+from gliqviz.matrix_assets_store import CACHE_CONTROL, MatrixAssetStore
 from rsm.rsm import create_rsm_app
 from tb.bandstructure_dash import create_tb_app
 from cohp.TBmodel import COHPDashApp
-# `/app/gliquid` is DATA ONLY -- static assets, the params workbooks and the read-only
-# SQLite store -- served at the public /gliquid/ URL by the mount below. /app is the
-# container WORKDIR and therefore first on sys.path, so that directory sits directly in
-# the way of the pip-installed `gliquid` package. It is harmless ONLY because it has no
-# `__init__.py`: without one it is a mere namespace portion, the import scan continues
-# past it, and `import gliquid` resolves to site-packages. Adding an `__init__.py` back
-# would make it a regular package and silently shadow the real one -- the original bug.
-# For the same reason nothing under it may be importable as `gliquid.<anything>`, which
-# is why the Dash app is a top-level module beside it rather than `gliquid/scripts/`.
-from gliquid_app import create_gliqtern_app
+from gliqviz.gliquid_app import create_gliqtern_app
 
 app = FastAPI()
 
@@ -72,7 +65,27 @@ dash_app_cohp = COHPDashApp().create_cohp_dashapp(requests_pathname_prefix="/cog
 dash_app_gliqtern = create_gliqtern_app(requests_pathname_prefix="/gliquid/ternary-interpolation/")
 
 app.mount("/gliquid/ternary-interpolation/", WSGIMiddleware(dash_app_gliqtern.server))
-app.mount("/gliquid/", StaticFiles(directory="gliquid"))
+
+# Serves the matrix .webp out of the ZIP shards at their original urls. MUST precede the
+# StaticFiles mount below -- Starlette takes the first match in registration order. Loads as
+# None when no shards are present, falling through to the mount.
+_MATRIX_STORE = MatrixAssetStore.load(
+    Path(__file__).resolve().parent / "gliqviz" / "matrix_shards")
+
+if _MATRIX_STORE is not None:
+    @app.get("/gliquid/matrix_assets/{name}")
+    def get_matrix_asset(name: str, request: Request):
+        # Sync def: Starlette runs it in the threadpool, so the blocking zip read never stalls
+        # the event loop.
+        etag = _MATRIX_STORE.etag(name)
+        if etag is None:
+            return Response(status_code=404)
+        headers = {"ETag": etag, "Cache-Control": CACHE_CONTROL}
+        if etag in [t.strip() for t in request.headers.get("if-none-match", "").split(",")]:
+            return Response(status_code=304, headers=headers)
+        return Response(content=_MATRIX_STORE.read(name), media_type="image/webp", headers=headers)
+
+app.mount("/gliquid/", StaticFiles(directory="gliqviz"))
 app.mount("/cogito/", StaticFiles(directory="cogito"))
 app.mount("/cogito-cohp", WSGIMiddleware(dash_app_cohp.server))
 app.mount("/rsm", WSGIMiddleware(dash_app_rsm.server))

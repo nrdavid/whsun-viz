@@ -25,10 +25,11 @@ COPY ./app /app
 # `docker run` does not silently re-enable the network.
 # GLIQUID_CACHE_DIR names the single read-only SQLite store that replaced the
 # 4,991-file binary_cache/ tree; a .sqlite suffix also selects cache_mode='sqlite'.
-# /app/gliquid is a DATA directory with no __init__.py -- see the note in main.py for
-# why that is what keeps it from shadowing the installed `gliquid` package.
+# gliqviz/ holds both the code and the data served at /gliquid/. It may not be named
+# `gliquid` -- /app is the WORKDIR and first on sys.path, so that would shadow the
+# installed package.
 ENV GLIQUID_OFFLINE=1 \
-    GLIQUID_CACHE_DIR=/app/gliquid/gliquid_cache.sqlite
+    GLIQUID_CACHE_DIR=/app/gliqviz/gliquid_cache.sqlite
 
 #
 EXPOSE 8000

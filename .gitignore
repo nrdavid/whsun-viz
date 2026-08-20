@@ -8,3 +8,15 @@ src/wheels/
 # Byte-compiled artifacts (this tree is COPY'd into the image as-is).
 __pycache__/
 *.py[cod]
+
+# Test suite and its framework deps, held back from the repo for now. Nothing here is a
+# build input: the Dockerfile installs only requirements.txt, so the image is unaffected.
+src/tests/
+src/requirements-dev.txt
+.pytest_cache/
+
+# The loose per-system assets this commit removed. They are served from
+# gliqviz/matrix_shards/ now, and the generator writes new ones to dev/data/matrix_assets/
+# in the gliquid workspace, never here. Ignored rather than merely deleted so that a stray
+# `git add -A` in a tree that still has the old directory cannot put 810 MB back.
+src/app/gliqviz/matrix_assets/
