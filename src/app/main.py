@@ -1,12 +1,23 @@
 from typing import Union
-from fastapi.middleware.wsgi import WSGIMiddleware
+# Starlette removed fastapi.middleware.wsgi.WSGIMiddleware; a2wsgi provides the
+# ASGI->WSGI bridge these Dash/Flask sub-apps are mounted through.
+from a2wsgi import WSGIMiddleware
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from rsm.rsm import create_rsm_app
 from tb.bandstructure_dash import create_tb_app
-from cohp.TBmodel import COHPDashApp            
-from gliquid.scripts.interactive_ternary_plotter import create_gliqtern_app
+from cohp.TBmodel import COHPDashApp
+# `/app/gliquid` is DATA ONLY -- static assets, the params workbooks and the read-only
+# SQLite store -- served at the public /gliquid/ URL by the mount below. /app is the
+# container WORKDIR and therefore first on sys.path, so that directory sits directly in
+# the way of the pip-installed `gliquid` package. It is harmless ONLY because it has no
+# `__init__.py`: without one it is a mere namespace portion, the import scan continues
+# past it, and `import gliquid` resolves to site-packages. Adding an `__init__.py` back
+# would make it a regular package and silently shadow the real one -- the original bug.
+# For the same reason nothing under it may be importable as `gliquid.<anything>`, which
+# is why the Dash app is a top-level module beside it rather than `gliquid/scripts/`.
+from gliquid_app import create_gliqtern_app
 
 app = FastAPI()
 

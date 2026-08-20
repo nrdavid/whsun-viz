@@ -128,7 +128,7 @@ class TBModel(object):
             first_line = 100 #3+num_orbs #12
         else:
             first_line = 3+num_orbs
-            self.aeorb_overlap = np.zeros((num_orbs, num_orbs),dtype=np.complex_)
+            self.aeorb_overlap = np.zeros((num_orbs, num_orbs),dtype=np.complex128)
             line_num = 1
             for orb1 in range(num_orbs):
                 line_num += 1
@@ -151,7 +151,7 @@ class TBModel(object):
         self.vec_to_trans = vec_to_trans
         atomic_energies = []
         #read in the TB parameters
-        TB_params = np.zeros((num_orbs,num_orbs,num_trans[0],num_trans[1],num_trans[2]), dtype=np.complex_)
+        TB_params = np.zeros((num_orbs,num_orbs,num_trans[0],num_trans[1],num_trans[2]), dtype=np.complex128)
         for line in filelines[first_line:]:
             count += 1
             info = line.split()
@@ -193,7 +193,7 @@ class TBModel(object):
             first_line = 100 #3+num_orbs #12
         else:
             first_line = 3+num_orbs
-            self.aeorb_overlap = np.zeros((num_orbs, num_orbs),dtype=np.complex_)
+            self.aeorb_overlap = np.zeros((num_orbs, num_orbs),dtype=np.complex128)
             line_num = 1
             for orb1 in range(num_orbs):
                 line_num += 1
@@ -210,7 +210,7 @@ class TBModel(object):
         #generate list of the displacement between translations
         atomic_energies = []
         #read in the TB parameters
-        overlaps_params = np.zeros((num_orbs,num_orbs,num_trans[0],num_trans[1],num_trans[2]), dtype=np.complex_)
+        overlaps_params = np.zeros((num_orbs,num_orbs,num_trans[0],num_trans[1],num_trans[2]), dtype=np.complex128)
         for line in filelines[first_line:]:
             count += 1
             info = line.split()
@@ -347,8 +347,8 @@ class TBModel(object):
         num_orbs2 = len(secondWF)
         #grid = orbitalWF[list(orbitalWF.keys())[0]].shape
         #print(num_orbs)
-        overlap_matrix = np.zeros((num_orbs, num_orbs2), dtype=np.complex_)
-        #for_integral = np.zeros((num_orbs,num_orbs, grid[0], grid[1], grid[2]), dtype=np.complex_)
+        overlap_matrix = np.zeros((num_orbs, num_orbs2), dtype=np.complex128)
+        #for_integral = np.zeros((num_orbs,num_orbs, grid[0], grid[1], grid[2]), dtype=np.complex128)
         for orb1 in range(num_orbs):
             WF1 = orbitalWF[list(orbitalWF.keys())[orb1]]
             for orb2 in range(num_orbs2):
@@ -357,8 +357,8 @@ class TBModel(object):
         return overlap_matrix
 
     def get_ham(self,kpt,return_overlap=False,return_truevec = True):
-        ham = np.zeros((self.num_orbs,self.num_orbs),dtype=np.complex_)
-        kdep_overlap = np.zeros((self.num_orbs,self.num_orbs),dtype=np.complex_)
+        ham = np.zeros((self.num_orbs,self.num_orbs),dtype=np.complex128)
+        kdep_overlap = np.zeros((self.num_orbs,self.num_orbs),dtype=np.complex128)
         vec_to_orbs = np.zeros(self.vec_to_trans.shape)
         #print("check same:", self.orbitals[str(0)][12,12,:])
         
@@ -403,7 +403,7 @@ class TBModel(object):
             eigenvalj, kdep_Dij = np.linalg.eigh(kdep_Sij)
             # check correctness of eigen
             # construct Aij
-            kdep_Aij = np.zeros((self.num_orbs, self.num_orbs), dtype=np.complex_)
+            kdep_Aij = np.zeros((self.num_orbs, self.num_orbs), dtype=np.complex128)
             for j in range(self.num_orbs):
                 kdep_Aij[:, j] = kdep_Dij[:, j] / (eigenvalj[j]) ** (1 / 2)
             #get ham for orthogonal eigenvectors
@@ -486,7 +486,7 @@ class TBModel(object):
         irrec_kpts = np.array(mesh)[irrec_kpts_ind]
         #print("irreducible kpts:",irrec_kpts)
         kptvecs = mesh
-        kptvecs = np.array(kptvecs, dtype=np.float_)
+        kptvecs = np.array(kptvecs, dtype=np.float64)
         #print(kptvecs)
         num_kpts = len(kptvecs)
         self.num_kpts = num_kpts
@@ -494,8 +494,8 @@ class TBModel(object):
         self.kpt_weights = np.ones(num_kpts)/num_kpts
         
         eigvals = np.zeros((num_kpts,self.num_orbs))
-        eigvecs = np.zeros((num_kpts,self.num_orbs,self.num_orbs),dtype=np.complex_)
-        kdep_Sij = np.zeros((num_kpts, self.num_orbs, self.num_orbs), dtype=np.complex_)  # from get_ham
+        eigvecs = np.zeros((num_kpts,self.num_orbs,self.num_orbs),dtype=np.complex128)
+        kdep_Sij = np.zeros((num_kpts, self.num_orbs, self.num_orbs), dtype=np.complex128)  # from get_ham
         
         vecs = np.array(self.vec_to_trans)
         orb_pos = np.array(self.orb_redcoords)
@@ -527,7 +527,7 @@ class TBModel(object):
         ci2 = np.conj(mnk2[:, :, :, None])  # self.mnkcoefficients[:,:,:,None])
         Sij = kdep_Sij[:, None, :, :]
 
-        fnk = np.zeros((num_kpts, self.num_orbs), dtype=np.float_)
+        fnk = np.zeros((num_kpts, self.num_orbs), dtype=np.float64)
         for k in range(num_kpts):
             for i in range(self.num_orbs):
                 if eigvals[k, i] <= (self.efermi+self.energy_shift + 0.0001):
@@ -595,7 +595,7 @@ class TBModel(object):
         [numbands,numkpts,numorbs] = [int(i) for i in lines[1].strip().split()]
         self.max_band = numbands
         #print(numbands,numkpts,numorbs)
-        self.mnkcoefficients = np.zeros((numkpts,numbands,numorbs), dtype=np.complex_) #kpt, band,orb
+        self.mnkcoefficients = np.zeros((numkpts,numbands,numorbs), dtype=np.complex128) #kpt, band,orb
         #print(self.mnkcoefficients.shape)
         for line in lines[2:]:
             [band,orb,kpt] = [int(i)-1 for i in line.strip().split()[:3]]
@@ -822,7 +822,7 @@ class TBModel(object):
                     cohp += np.conj(self.eigvecs[kpoint,band,orb1])*ham_nmk[orb1,orb2]*self.mnkcoefficients[kpoint,band,orb2]
 
         if mode == "DOS" or "BS":
-            cohp = np.zeros(self.eigvecs[:,:self.num_orbs,0].shape, dtype=np.complex_) # kpts,bands
+            cohp = np.zeros(self.eigvecs[:,:self.num_orbs,0].shape, dtype=np.complex128) # kpts,bands
             
             #get it from TB params so have all except orbital energies
             vecs = np.array(self.vec_to_trans)
@@ -975,7 +975,7 @@ class TBModel(object):
         
         
         if mode == "DOS" or "BS":
-            coop = np.zeros(self.eigvecs[:,:self.num_orbs,0].shape, dtype=np.complex_) # kpts,bands
+            coop = np.zeros(self.eigvecs[:,:self.num_orbs,0].shape, dtype=np.complex128) # kpts,bands
             
             #get it from TB params so have all except orbital energies
             vecs = np.array(self.vec_to_trans)
@@ -1077,7 +1077,7 @@ class TBModel(object):
         
         
         # get the cohp
-        cohp = np.zeros((self.num_kpts,self.num_orbs,self.num_orbs,cell[0],cell[1],cell[2]), dtype=np.complex_) # kpts,orb1,orb2,T1,T2,T3
+        cohp = np.zeros((self.num_kpts,self.num_orbs,self.num_orbs,cell[0],cell[1],cell[2]), dtype=np.complex128) # kpts,orb1,orb2,T1,T2,T3
         #get it from TB params so have all except orbital energies
         vecs = np.array(vec_to_trans) # this will align different with the TB_params!!
         orb_pos = np.array(self.orb_redcoords)
@@ -1254,7 +1254,7 @@ class TBModel(object):
         
         
         eigvals = np.zeros((self.num_kpts,self.num_orbs))
-        eigvecs = np.zeros((self.num_kpts,self.num_orbs,self.num_orbs),dtype=np.complex_)
+        eigvecs = np.zeros((self.num_kpts,self.num_orbs,self.num_orbs),dtype=np.complex128)
 
         vecs = np.array(self.vec_to_trans)
         orb_pos = np.array(self.orb_redcoords)
@@ -1464,12 +1464,12 @@ class TBModel(object):
         shapes = regTBparams.shape
         Rcenter = np.array(np.floor(np.array([shapes[2],shapes[3],shapes[4]])/2),dtype=np.int_)
         #print(shapes,Rcenter)
-        SoC_TBparams = np.zeros((shapes[0]*2,shapes[1]*2,shapes[2],shapes[3],shapes[4]),dtype=np.complex_)
+        SoC_TBparams = np.zeros((shapes[0]*2,shapes[1]*2,shapes[2],shapes[3],shapes[4]),dtype=np.complex128)
         SoC_TBparams[:shapes[0],:shapes[1],:,:,:] = regTBparams
         SoC_TBparams[shapes[0]:,shapes[1]:,:,:,:] = regTBparams
         
         regoverlaps = self.overlaps_params
-        SoC_overlaps = np.zeros((shapes[0]*2,shapes[1]*2,shapes[2],shapes[3],shapes[4]),dtype=np.complex_)
+        SoC_overlaps = np.zeros((shapes[0]*2,shapes[1]*2,shapes[2],shapes[3],shapes[4]),dtype=np.complex128)
         SoC_overlaps[:shapes[0],:shapes[1],:,:,:] = regoverlaps
         SoC_overlaps[shapes[0]:,shapes[1]:,:,:,:] = regoverlaps
         #SoC_overlaps[:shapes[0],shapes[1]:,:,:,:] = regoverlaps

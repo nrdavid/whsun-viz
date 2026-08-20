@@ -1,0 +1,10 @@
+# The gliquid wheel is a BUILD INPUT, not source. It is produced from the
+# gliquid_python checkout (see src/requirements.txt for the exact command) and
+# dropped here for `docker build`. Keeping it untracked is deliberate: this repo is
+# public, `*.webp` in .gitattributes has its LFS filter commented out, and a binary
+# artifact committed here would be in plain git forever.
+src/wheels/
+
+# Byte-compiled artifacts (this tree is COPY'd into the image as-is).
+__pycache__/
+*.py[cod]

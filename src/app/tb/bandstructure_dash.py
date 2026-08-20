@@ -173,7 +173,7 @@ class Bandstructure(object):
         scaledTBparams = self.newModel.get_ham(self.k_vec[kpoint],scaledTBparams=True)
         TBparams = copy.deepcopy(self._hoppings).flatten()
 
-        energyCont = np.zeros((self.numOrbs, self.numOrbs,numT, numT, numT), dtype=np.complex_)
+        energyCont = np.zeros((self.numOrbs, self.numOrbs,numT, numT, numT), dtype=np.complex128)
         for orb1 in range(self.numOrbs):
             for orb2 in range(self.numOrbs):
                 energyCont[orb1,orb2] = scaledTBparams[orb1,orb2]*np.conj(eigen_var[orb1])*eigen_var[orb2]
@@ -338,8 +338,8 @@ class Bandstructure(object):
             eig_vecs[:,:] = self.coeffs
         num_kpts = len(kpnts)
 
-        bond_run = np.zeros((num_kpts),dtype=np.complex_)
-        bond_energy = np.zeros((num_kpts),dtype=np.complex_)
+        bond_run = np.zeros((num_kpts),dtype=np.complex128)
+        bond_energy = np.zeros((num_kpts),dtype=np.complex128)
         coeffs_mag = []
         for ind,k in enumerate(kpnts):
             #get and normalize eigvecs but keep phase

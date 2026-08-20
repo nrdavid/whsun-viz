@@ -53,7 +53,7 @@ class TBModel(object):
             first_line = 3 + math.ceil(wk_pnts/15) #100 #3+num_orbs #12
         else:
             first_line = 3+num_orbs
-            self.aeorb_overlap = np.zeros((num_orbs, num_orbs),dtype=np.complex_)
+            self.aeorb_overlap = np.zeros((num_orbs, num_orbs),dtype=np.complex128)
             line_num = 1
             for orb1 in range(num_orbs):
                 line_num += 1
@@ -76,7 +76,7 @@ class TBModel(object):
                     vec_to_trans[x,y,z] = [x-num_each_dir,y-num_each_dir,z-num_each_dir]
         self.vec_to_trans = vec_to_trans
         #read in the TB parameters
-        TB_params = np.zeros((num_orbs,num_orbs,num_trans,num_trans,num_trans), dtype=np.complex_)
+        TB_params = np.zeros((num_orbs,num_orbs,num_trans,num_trans,num_trans), dtype=np.complex128)
         for line in filelines[first_line:]:
             count += 1
             info = line.split()
@@ -218,7 +218,7 @@ class TBModel(object):
             keys = list(self.orbitals.keys())
             recip_orbs = {}
             for orb in keys:
-                recip_orbs[orb] = np.zeros((self.num_gpnts), dtype=np.complex_)
+                recip_orbs[orb] = np.zeros((self.num_gpnts), dtype=np.complex128)
                 mesh = np.fft.fftn(self.orbitals[orb])
                 mesh = np.fft.fftshift(mesh)
                 for gind, gp in enumerate(self.gpoints):
@@ -234,7 +234,7 @@ class TBModel(object):
                 center = self.primAtoms[atomnum]
                 exp_term = np.exp(2j * np.pi * np.dot(self.gpoints, center))
                 coeffs = self.recip_orbs[str(orb)] * exp_term  # center orbital so that the G->G+k doesn't effect e^iGR
-                mesh = np.zeros(tuple(self.grid), dtype=np.complex_)
+                mesh = np.zeros(tuple(self.grid), dtype=np.complex128)
                 for gp, coeff in zip(self.gpoints, coeffs):
                     t = tuple(gp.astype(np.int_) + (self.grid/ 2).astype(np.int_))
                     mesh[t] = coeff
@@ -246,7 +246,7 @@ class TBModel(object):
         recip_orbs = {}
         kpt = 0
         for orb in keys:
-            recip_orbs[orb] = np.zeros((self.grid), dtype=np.complex_)
+            recip_orbs[orb] = np.zeros((self.grid), dtype=np.complex128)
             mesh = np.fft.fftn(real_orbs[orb])
             mesh = np.fft.fftshift(mesh)
             recip_orbs[orb] = mesh
@@ -307,7 +307,7 @@ class TBModel(object):
         return gpoints
 
     def get_ham(self,kpt,scaledTBparams = False):
-        ham = np.zeros((self.num_orbs,self.num_orbs),dtype=np.complex_)
+        ham = np.zeros((self.num_orbs,self.num_orbs),dtype=np.complex128)
         vec_to_orbs = np.zeros(self.vec_to_trans.shape)
         ## print("check same:", self.orbitals[str(0)][12,12,:])
 
@@ -341,7 +341,7 @@ class TBModel(object):
         self.Aij[kpt] = kdep_Aij
         '''
         if scaledTBparams == True:
-            scaledTB = np.zeros((self.num_orbs,self.num_orbs,self.num_trans,self.num_trans,self.num_trans), dtype=np.complex_)
+            scaledTB = np.zeros((self.num_orbs,self.num_orbs,self.num_trans,self.num_trans,self.num_trans), dtype=np.complex128)
         for orb1 in range(self.num_orbs):
             for orb2 in range(self.num_orbs):
                 vec_to_orbs[:,:,:] = self.vec_to_trans[:,:,:] + self.orb_redcoords[orb2] - self.orb_redcoords[orb1]
@@ -365,7 +365,7 @@ class TBModel(object):
         '''
         else:
             if self.recip==False:
-                expon_term = np.zeros((self.numAtoms, self.grid[0], self.grid[1], self.grid[2]), dtype=np.complex_)
+                expon_term = np.zeros((self.numAtoms, self.grid[0], self.grid[1], self.grid[2]), dtype=np.complex128)
                 for atm in range(self.numAtoms):
                     min_reducedcoord_diff = np.array(self.min_xyzreduced[str(atm)])
                     # print(kpt,min_reducedcoord_diff[:,0])
@@ -393,7 +393,7 @@ class TBModel(object):
                     # print("is same?", coeffs, test_coeffs)
                     adjusted_orbs[str(orb)] = test_coeffs * exp_term
 
-            kdep_Sij = np.zeros((self.num_orbs, self.num_orbs), dtype=np.complex_)
+            kdep_Sij = np.zeros((self.num_orbs, self.num_orbs), dtype=np.complex128)
             for orb1 in range(self.num_orbs):
                 for orb2 in range(self.num_orbs):
                     atmnum1 = self.orbatomnum[orb1]
@@ -416,7 +416,7 @@ class TBModel(object):
             eigenvalj, kdep_Dij = np.linalg.eig(kdep_Sij)
             # check correctness of eigen
             # construct Aij
-            kdep_Aij = np.zeros((self.num_orbs, self.num_orbs), dtype=np.complex_)
+            kdep_Aij = np.zeros((self.num_orbs, self.num_orbs), dtype=np.complex128)
             for j in range(self.num_orbs):
                 kdep_Aij[:, j] = kdep_Dij[:, j] / (eigenvalj[j]) ** (1 / 2)
             #get ham for orthogonal eigenvectors
