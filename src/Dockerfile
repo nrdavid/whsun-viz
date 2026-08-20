@@ -4,15 +4,8 @@ FROM python:3.11
 #
 WORKDIR /app
 
-# gliquid is not published to PyPI. Its wheel is built from the gliquid_python
-# checkout into ./wheels (see requirements.txt for the exact command); --find-links
-# makes pip prefer that file while still resolving gliquid's own dependencies from
-# the index. The directory is removed in the same layer so the wheel does not ride
-# along in the image.
 COPY requirements.txt .
-COPY wheels /tmp/wheels
-RUN pip install --no-cache-dir --upgrade --find-links=/tmp/wheels -r requirements.txt \
-    && rm -rf /tmp/wheels
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 #
 COPY ./app /app

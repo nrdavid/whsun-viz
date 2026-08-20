@@ -1,16 +1,6 @@
 # whsun-viz image requirements.
 
-# The clone is load-bearing: hatch-vcs derives the version from the git tag, and a
-# `git archive` (no .git) would silently stamp the 0.0.0 fallback instead.
-#
-# TEMPORARY, replaced by `gliquid==0.2.0` once that tag is published. This is a
-# pre-release wheel off cache-layout@0a853f8 so the container can be tested against the
-# code that BECOMES 0.2.0 -- the previous pin (0.1.1.dev8+g24546dfb7) predates the
-# ternary polymorph-ladder injection, so an image built on it renders elemental corners
-# at h_liq/s_liq instead of t_fusion and cannot exercise the fix at all. Verified wheel
-# contents: every module byte-identical to the working tree except the generated
-# _version.py, and models/ carries the v24.01 huber bundle 20260817_112204.
-gliquid==0.1.1.dev10+g0a853f833
+gliquid==0.2.0
 
 # --- ASGI / web stack ---------------------------------------------------------
 fastapi>=0.115,<1.0
