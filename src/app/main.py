@@ -26,6 +26,10 @@ def read_item(item_id: int, q: Union[str, None] = None):
 def redirect_to_gliq_im():
     return RedirectResponse(url="/gliquid/interactive-matrix.html")
 
+@app.get("/maxwell")
+def redirect_to_maxwell():
+    return RedirectResponse(url="/maxwell/Maxwell_Surface_Viewer.html")
+
 @app.get("/cogito")
 def redirect_to_test_web():
     return RedirectResponse(url="/cogito/bond_plots.html")
@@ -91,6 +95,7 @@ app.mount("/cogito-cohp", WSGIMiddleware(dash_app_cohp.server))
 app.mount("/rsm", WSGIMiddleware(dash_app_rsm.server))
 app.mount("/tb", WSGIMiddleware(dash_app_tb.server))
 app.mount("/vr", StaticFiles(directory="vr"))
+app.mount("/maxwell/", StaticFiles(directory="maxwell"))
 
 if __name__ == "__main__":
     app.run()
