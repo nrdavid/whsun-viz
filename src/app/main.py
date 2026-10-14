@@ -1,9 +1,9 @@
 from pathlib import Path
 from typing import Union
-# Starlette removed fastapi.middleware.wsgi.WSGIMiddleware; a2wsgi provides the
-# ASGI->WSGI bridge these Dash/Flask sub-apps are mounted through.
+# The ASGI->WSGI bridge the Dash/Flask sub-apps are mounted through.
 from a2wsgi import WSGIMiddleware
 from fastapi import FastAPI, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, Response
 from gliqviz.matrix_assets_store import CACHE_CONTROL, MatrixAssetStore
@@ -13,6 +13,8 @@ from cohp.TBmodel import COHPDashApp
 from gliqviz.gliquid_app import create_gliqtern_app
 
 app = FastAPI()
+# Gzips every response over 1 kB for clients that accept it, mounted Dash apps included.
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=4)
 
 @app.get("/")
 def read_root():
@@ -70,17 +72,15 @@ dash_app_gliqtern = create_gliqtern_app(requests_pathname_prefix="/gliquid/terna
 
 app.mount("/gliquid/ternary-interpolation/", WSGIMiddleware(dash_app_gliqtern.server))
 
-# Serves the matrix .webp out of the ZIP shards at their original urls. MUST precede the
-# StaticFiles mount below -- Starlette takes the first match in registration order. Loads as
-# None when no shards are present, falling through to the mount.
+# Serves the matrix .webp out of the ZIP shards; None when there are no shards.
+# Register it before the StaticFiles mount below: Starlette takes the first match.
 _MATRIX_STORE = MatrixAssetStore.load(
     Path(__file__).resolve().parent / "gliqviz" / "matrix_shards")
 
 if _MATRIX_STORE is not None:
     @app.get("/gliquid/matrix_assets/{name}")
     def get_matrix_asset(name: str, request: Request):
-        # Sync def: Starlette runs it in the threadpool, so the blocking zip read never stalls
-        # the event loop.
+        # A sync def, so Starlette runs the blocking zip read in its threadpool.
         etag = _MATRIX_STORE.etag(name)
         if etag is None:
             return Response(status_code=404)
