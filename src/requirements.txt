@@ -1,6 +1,6 @@
 # whsun-viz image requirements.
 
-gliquid==0.2.0
+gliquid==0.3.0
 
 # --- ASGI / web stack ---------------------------------------------------------
 fastapi>=0.115,<1.0
@@ -10,19 +10,14 @@ a2wsgi>=1.10,<2
 aiofiles>=24.1.0
 
 # --- Dash / Flask sub-apps ----------------------------------------------------
-# Flask, Werkzeug, itsdangerous, Jinja2, MarkupSafe, blinker and click are left to
-# dash's own resolver: dash 2.18 caps Flask/Werkzeug itself, and pinning them here
-# is how the previous stack deadlocked.
+# Flask, Werkzeug and the rest of dash's stack are resolved by dash. Do not pin them here.
 dash>=2.18,<3
 dash_ag_grid>=31.0.1
-# plotly floor is gliquid's (5.18's express layer breaks on pandas 3); the <6 ceiling
-# is separate -- plotly 6 moved the fillpattern semantics these diagrams rely on.
+# plotly 6 changed the fillpattern semantics these diagrams use. Do not lift the ceiling.
 plotly>=5.24,<6
 
 # --- Scientific stack ---------------------------------------------------------
-# cohp, tb, rsm import these directly; gliquid
-# carries its own floors and pip intersects. matplotlib's floor is raised to gliquid's
-# >=3.10 so the resolver settles here rather than backtracking.
+# Imported directly by cohp, tb and rsm.
 numpy>=1.26,<3
 pandas>=2.0
 scipy>=1.11
@@ -33,14 +28,11 @@ openpyxl>=3.1.5
 # --- Materials Project / MPDS -------------------------------------------------
 pymatgen>=2024.1.1
 mp-api>=0.45.1
-# Ceiling is measured and load-bearing, not hygiene: emmet-core 0.87.1 resolves
-# emmet.core.io.pymatgen.__getattr__ onto pymatgen.core.entries, a module current
-# pymatgen no longer has, which breaks every live MP fetch. gliquid pins the same
-# bound; it is repeated here so removing it needs the same evidence twice.
+# Newer emmet-core breaks live Materials Project fetches. Do not lift the ceiling.
 emmet-core>=0.84,<0.86
 
-# --- pymatgen optional backends actually reached by the sibling apps -----------
-# cohp/TBmodel.py and tb/nonorthTB.py both call pymatgen.symmetry.kpath.KPathSeek,
-# which is a no-op stub unless seekpath is installed.
+# --- pymatgen optional backends ------------------------------------------------
+# pymatgen.symmetry.kpath.KPathSeek, called by cohp/TBmodel.py and tb/nonorthTB.py, needs
+# seekpath.
 seekpath>=2.1.0
 phonopy>=2.17.1
