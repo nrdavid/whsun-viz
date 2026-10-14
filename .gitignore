@@ -1,22 +1,18 @@
-# The gliquid wheel is a BUILD INPUT, not source. It is produced from the
-# gliquid_python checkout (see src/requirements.txt for the exact command) and
-# dropped here for `docker build`. Keeping it untracked is deliberate: this repo is
-# public, `*.webp` in .gitattributes has its LFS filter commented out, and a binary
-# artifact committed here would be in plain git forever.
+# Local gliquid wheels.
 src/wheels/
 
-# Byte-compiled artifacts (this tree is COPY'd into the image as-is).
+# Byte-compiled artifacts.
 __pycache__/
 *.py[cod]
 
-# Test suite and its framework deps, held back from the repo for now. Nothing here is a
-# build input: the Dockerfile installs only requirements.txt, so the image is unaffected.
+# The app tests and their dependencies; the image installs requirements.txt only.
 src/tests/
 src/requirements-dev.txt
 .pytest_cache/
 
-# The loose per-system assets this commit removed. They are served from
-# gliqviz/matrix_shards/ now, and the generator writes new ones to dev/data/matrix_assets/
-# in the gliquid workspace, never here. Ignored rather than merely deleted so that a stray
-# `git add -A` in a tree that still has the old directory cannot put 810 MB back.
+# Loose matrix sheets; the app serves them from gliqviz/matrix_shards/.
 src/app/gliqviz/matrix_assets/
+
+# SQLite sidecars of the cache store, created whenever it is opened.
+src/app/gliqviz/gliquid_cache.sqlite-shm
+src/app/gliqviz/gliquid_cache.sqlite-wal
