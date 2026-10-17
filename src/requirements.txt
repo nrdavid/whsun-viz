@@ -1,6 +1,6 @@
 # whsun-viz image requirements.
 
-gliquid==0.3.0
+gliquid==0.3.1
 
 # --- ASGI / web stack ---------------------------------------------------------
 fastapi>=0.115,<1.0
