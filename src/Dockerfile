@@ -5,7 +5,8 @@ FROM python:3.11
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade -r requirements.txt
+COPY wheels /tmp/wheels
+RUN pip install --no-cache-dir --upgrade --find-links=/tmp/wheels -r requirements.txt
 
 #
 COPY ./app /app
