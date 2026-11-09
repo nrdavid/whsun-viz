@@ -1,5 +1,6 @@
 # Local gliquid wheels.
-src/wheels/
+src/wheels/*
+!src/wheels/.gitkeep
 
 # Byte-compiled artifacts.
 __pycache__/
