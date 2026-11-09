@@ -15,6 +15,8 @@ from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 import threading
+import ctypes
+import sys
 import flask
 import gliquid.config as gliquid_config
 from gliquid.cache import resolve_backend
@@ -54,10 +56,9 @@ LANDING_SYSTEM = "Ce-Fe-Si"
 
 INTERP_TYPE = 'linear'
 PARAM_FORMAT = 'combined'
-T_INCR = 10.0
 DELTA = 0.025
 # Hull evaluation backend of TernaryLiquidInterpolation.
-HULL_MODE = 'hsx'
+HULL_MODE = 'gtx'
 
 # The DFT functional TernaryLiquidInterpolation reads ternary entries for.
 TERNARY_DFT_TYPE = "GGA"
@@ -220,7 +221,12 @@ SUB_LABEL_FONT, SUB_L_FONT, SUB_COMPONENT_FONT, SUB_NOTE_FONT = 9, 11, 11, 10
 # The component names sit SUB_COMPONENT_DY px below the axis, at this paper-y.
 SUB_COMPONENT_DY = 23
 SUB_COMPONENT_Y = -SUB_COMPONENT_DY / (SUB_HEIGHT - SUB_MARGIN['t'] - SUB_MARGIN['b'])
-TERNARY_WIDTH, TERNARY_HEIGHT = 700, 900
+TERNARY_WIDTH, TERNARY_HEIGHT = 950, 900
+# The ternary scene's x and y aspect ratios are TERNARY_XY_STRETCH times gliquid's, against an
+# unchanged z, so the box is wider than tall. The z-axis title, a paper annotation, moves to
+# TERNARY_Z_TITLE_X to stay beside the tick labels in the wider figure.
+TERNARY_XY_STRETCH = 1.3
+TERNARY_Z_TITLE, TERNARY_Z_TITLE_X = "Temperature (°C)", 0.015
 
 # Page layout, in px. The sidebar's width includes its padding and scrollbar gutter and holds
 # IDLE_MESSAGE on one line. PLOT_GAP separates the sidebar, the binary column and the ternary
@@ -289,7 +295,6 @@ def build_ternary_plotter(components, binary_L_dict, fit_or_pred, progress=None)
         param_format=PARAM_FORMAT,
         xs_mix=binary_L_dict or {},
         fit_or_pred=fit_or_pred or {},
-        T_incr=T_INCR,
         hull_mode=HULL_MODE,
     )
     plotter = TLIPlotter(
@@ -341,19 +346,87 @@ def generation_progress(stage, done=1, total=1):
     return PROGRESS_AT[stage], NEXT_STEP[stage]
 
 
+# The liquidus-surface step (from "hull" to "ternary") is mostly gliquid's
+# liquidus_fields.partition_fields, which reports no progress of its own. Each poll reads the
+# worker thread's stack instead: SURFACE_STEPS are its sub-steps in call order with their
+# weights, the shares of the span they get, and PARTITION_STEP maps the function
+# partition_fields is calling to one of them. A function gliquid renames or adds keeps the
+# sub-step shown last. The weights follow Bi-Sn-Th (5:17 in all): 4:20 refining the junctions,
+# 0:40 on the triple points, 0:15 on the two-liquid walls, about a second on each of the rest.
+SURFACE_STEPS = (("Solving the liquidus sheets", 1),
+                 ("Placing the edge points", 1),
+                 ("Grading the phase-field sides", 1),
+                 ("Refining the phase-field junctions", 4),
+                 ("Locating the phase-field boundaries", 1),
+                 ("Locating the triple points", 2),
+                 ("Drawing the two-liquid walls", 2),
+                 ("Finishing the phase fields", 1))
+PARTITION_STEP = {"_add_edge_points": 1, "_grade_sides": 2, "_refine_junctions": 3,
+                  "_sheet_crossings": 4, "crossing": 4, "_triple_points": 5, "_grade_walls": 6,
+                  "_cap_added": 7, "_merge_splinters": 7}
+# Within a sub-step the bar covers t / (t + SURFACE_CREEP_S) of its share after t seconds, so it
+# keeps moving, ever more slowly, however long the sub-step runs.
+SURFACE_CREEP_S = 60.0
+
+
+def surface_step(thread_id):
+    """Index into SURFACE_STEPS of what thread ``thread_id`` is computing, or None if unknown."""
+    frame = sys._current_frames().get(thread_id)
+    names = []
+    while frame is not None:
+        names.append(frame.f_code.co_name)
+        frame = frame.f_back
+    names.reverse()  # outermost call first
+    if "partition_fields" in names:
+        below = names[names.index("partition_fields") + 1:]
+        return PARTITION_STEP.get(below[0]) if below else None
+    return 0 if "_build_partition" in names else None
+
+
+def surface_progress(state, step, now):
+    """``(fraction, label, state)`` of the progress bar during the liquidus-surface step.
+
+    ``state`` is ``(step index or None, when it began, fraction shown last)`` from the previous
+    poll, ``step`` the sub-step the worker is in now (None: unknown, keep the last). The
+    fraction never goes back.
+    """
+    index, since, shown = state
+    if step is not None and step != index:
+        index, since = step, now
+    lo, hi = PROGRESS_AT["hull"], PROGRESS_AT["ternary"]
+    if index is not None:
+        weights = [weight for _, weight in SURFACE_STEPS]
+        unit = (hi - lo) / sum(weights)
+        lo += unit * sum(weights[:index])
+        hi = lo + unit * weights[index]
+    t = max(now - since, 0.0)
+    fraction = max(lo + (hi - lo) * t / (t + SURFACE_CREEP_S), shown)
+    label = SURFACE_STEPS[index][0] if index is not None else NEXT_STEP["hull"]
+    return fraction, label, (index, since, fraction)
+
+
+def format_elapsed(seconds):
+    """``seconds`` as m:ss."""
+    seconds = int(seconds)
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
 def gliquid_name():
     """The project name as the binary map writes it: an italic G and a subscript Liquid."""
     return [html.I("G"), html.Sub("Liquid")]
 
 
-def progress_bar(fraction, label):
-    """The sidebar progress bar filled to ``fraction`` (0-1), with ``label`` under it."""
-    pct = round(100 * min(max(fraction, 0.0), 1.0))
+def progress_bar(fraction, label, elapsed=None):
+    """The sidebar progress bar filled to ``fraction`` (0-1), with ``label`` under it and,
+    while a plot generates, the ``elapsed`` seconds. The bar and the percentage move in
+    tenths of a percent."""
+    pct = 100 * min(max(fraction, 0.0), 1.0)
+    detail = f"{pct:.1f}%" if elapsed is None else f"{pct:.1f}%, {format_elapsed(elapsed)}"
     return html.Div([
-        html.Div(html.Div(className="gl-progress-fill", style={'width': f"{pct}%"}),
+        html.Div(html.Div(className="gl-progress-fill", style={'width': f"{pct:.1f}%"}),
                  className="gl-progress", role="progressbar",
-                 **{'aria-valuenow': pct, 'aria-valuemin': 0, 'aria-valuemax': 100}),
-        html.Div(f"{label} ({pct}%)", className="gl-progress-label"),
+                 **{'aria-valuenow': round(pct), 'aria-valuemin': 0, 'aria-valuemax': 100}),
+        html.Div(f"{label} ({detail})", className="gl-progress-label"),
     ])
 
 
@@ -449,6 +522,10 @@ def ternary_figure(plotter):
     to the graph.
     """
     ternary_plot = plotter.get_plot("tx", interactive_legend=True)
+    aspect = ternary_plot.layout.scene.aspectratio
+    ternary_plot.update_layout(scene_aspectratio=dict(
+        x=aspect.x * TERNARY_XY_STRETCH, y=aspect.y * TERNARY_XY_STRETCH, z=aspect.z))
+    ternary_plot.update_annotations(selector=dict(text=TERNARY_Z_TITLE), x=TERNARY_Z_TITLE_X)
     ternary_plot.update_layout(
         title=f"<b>Interpolated {plotter.sys_name} Ternary Phase Diagram</b>",
         showlegend=True,
@@ -494,16 +571,76 @@ def render_landing_figures(system=None):
 # the least recently used; a tab whose session was dropped shows the landing figures.
 MAX_SESSIONS = 100
 SESSION_TTL = 2 * 3600
-# A plot still generating after this many seconds is reported as failed and the buttons are
-# re-enabled, so a stuck generation cannot lock its tab out.
-GENERATION_TIMEOUT = 300
+# A plot still generating after GENERATION_TIMEOUT seconds is stopped and reported as failed.
+# The slowest system measured, Bi-Sn-Th, takes 511 s with hull_mode 'gtx' (667 s with 'hsx').
+GENERATION_TIMEOUT = 800
+# A generation whose tab has not polled for ABANDON_AFTER seconds (the tab was closed) is
+# stopped. Browsers poll a hidden tab as rarely as once a minute, so this stays well above that.
+ABANDON_AFTER = 180
+# How often, in seconds, a generation's watchdog checks the two limits above.
+WATCH_S = 2.0
 IDLE_MESSAGE = "Enter input and click 'Generate Plot' to see the result."
-TIMEOUT_MESSAGE = "Plot generation timed out, please try again."
+TIMEOUT_MESSAGE = (f"Plot generation was stopped after {GENERATION_TIMEOUT // 60} min. "
+                   "This system takes too long to draw.")
+CANCELLED_MESSAGE = "Plot generation cancelled."
+# The button's label: it starts a generation, and cancels the one running.
+GENERATE_LABEL, CANCEL_LABEL = "Generate Plot", "Cancel"
 # The note under the ternary plot on what its legend does.
 LEGEND_HINT = ("Click a phase on the legend to view its solid-liquid coexistence region on the "
                "liquidus surface")
 # plot-token value that has deliver_plot send the landing figures; otherwise it is a generation.
 LANDING_TOKEN = "landing"
+
+
+class GenerationCancelled(BaseException):
+    """Raised inside a generation's worker thread to stop it. A BaseException, so that no
+    ``except Exception`` in the app or in gliquid catches it."""
+
+
+_default_excepthook = threading.excepthook
+
+
+def _ignore_cancelled(args):
+    """threading.excepthook that drops a GenerationCancelled landing after a worker's handler."""
+    if not issubclass(args.exc_type, GenerationCancelled):
+        _default_excepthook(args)
+
+
+threading.excepthook = _ignore_cancelled
+
+
+class Generation:
+    """One plot generation's worker thread, which :meth:`cancel` stops.
+
+    A thread cannot be killed; ``cancel`` raises GenerationCancelled in it instead, which
+    CPython delivers before the thread's next Python bytecode, so a long NumPy call finishes
+    first. gliquid's locks are all ``with`` blocks, which the exception releases.
+    """
+
+    def __init__(self, target, args):
+        self._lock = threading.Lock()
+        self._running = True
+        self.thread = threading.Thread(target=self._run, args=(target, args), daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def _run(self, target, args):
+        try:
+            target(*args)
+        except GenerationCancelled:
+            pass
+        finally:
+            with self._lock:
+                self._running = False
+
+    def cancel(self):
+        """Stop the thread if it still runs. At most once: a finished thread's id can be reused."""
+        with self._lock:
+            if self._running:
+                self._running = False
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                    ctypes.c_ulong(self.thread.ident), ctypes.py_object(GenerationCancelled))
 
 
 class SessionStore:
@@ -569,11 +706,52 @@ def create_gliqtern_app(requests_pathname_prefix):
             # Bumped by each generation started; a generation saves its result only while current.
             'generation': 0,
             'started_at': 0.0,
-            # (fraction, label) of the generation running, for the progress bar.
+            # When the tab last polled the generation running.
+            'polled_at': 0.0,
+            # (fraction, label) of the generation running, for the progress bar, and the stage
+            # it last reported.
             'progress': generation_progress("start"),
+            'stage': "start",
+            # surface_progress state of the liquidus-surface step.
+            'surface': (None, 0.0, 0.0),
+            # The Generation running, or the last one, and the system it draws.
+            'job': None,
+            'system_running': "",
+            # Shown, not as an error, when deliver_plot next sends the session's plots.
+            'notice': "",
         }
 
     sessions = SessionStore(new_session, MAX_SESSIONS, SESSION_TTL)
+    # Serializes a generation's end: its result, a cancel, a timeout.
+    generation_lock = threading.Lock()
+
+    def cancel_generation(session, message, generation=None, notice=""):
+        """Stop the session's running generation (only ``generation``, if given) and show
+        ``message`` as its error, or ``notice`` under the plots kept. True if one was stopped."""
+        with generation_lock:
+            if session['plot_ready'] or generation not in (None, session['generation']):
+                return False
+            session['generation'] += 1
+            session.update(plot_ready=True, error_occurred=bool(message), error_message=message,
+                           notice=notice)
+            job = session['job']
+        if job is not None:
+            job.cancel()
+        return True
+
+    def watch(session, generation):
+        """Stop ``generation`` once it runs past GENERATION_TIMEOUT or its tab stops polling."""
+        while session['generation'] == generation and not session['plot_ready']:
+            time.sleep(WATCH_S)
+            now = time.monotonic()
+            if now - session['started_at'] > GENERATION_TIMEOUT:
+                if cancel_generation(session, TIMEOUT_MESSAGE, generation):
+                    print(f"Stopped {session['system_running']}: timed out after "
+                          f"{GENERATION_TIMEOUT} s", flush=True)
+            elif now - session['polled_at'] > ABANDON_AFTER:
+                if cancel_generation(session, "", generation):
+                    print(f"Stopped {session['system_running']}: its tab stopped polling",
+                          flush=True)
 
     # CSS for the sidebar buttons and the progress bar
     app.index_string = '''
@@ -760,6 +938,9 @@ def create_gliqtern_app(requests_pathname_prefix):
         def report(stage, done=1, total=1):
             if session['generation'] == generation:
                 session['progress'] = generation_progress(stage, done, total)
+                session['stage'] = stage
+                if stage == "hull":
+                    session['surface'] = (None, time.monotonic(), PROGRESS_AT["hull"])
 
         try:
             print(f"Generating plot for: {components} with interpolation type: {INTERP_TYPE}")
@@ -787,9 +968,10 @@ def create_gliqtern_app(requests_pathname_prefix):
             result = {'error_occurred': True,
                       'error_message': "Invalid or unsupported system, please try again."}
 
-        # A generation that timed out or was superseded leaves the session alone.
-        if session['generation'] == generation:
-            session.update(result, plot_ready=True)
+        # A generation that was cancelled, timed out or was superseded leaves the session alone.
+        with generation_lock:
+            if session['generation'] == generation:
+                session.update(result, plot_ready=True)
 
     # app.layout must stay a function: a static layout gives every visitor the same session id.
     def serve_layout():
@@ -823,7 +1005,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                         dcc.Input(id='text-input', type='text', value='', placeholder="e.g., Bi-Cd-Sn",
                                   style={**text, 'display': 'block', 'width': '100%',
                                          'boxSizing': 'border-box', 'marginTop': '4px'}),
-                        html.Button('Generate Plot', id='submit-val', n_clicks=0,
+                        html.Button(GENERATE_LABEL, id='submit-val', n_clicks=0,
                                     className=BUTTON_CLASS, style={'marginTop': '12px'}),
                         html.Div(id='loading-message', children=IDLE_MESSAGE,
                                  style={'fontSize': '13px', 'marginTop': '8px'}),
@@ -884,12 +1066,13 @@ def create_gliqtern_app(requests_pathname_prefix):
 
     app.layout = serve_layout
 
-    # Starts generations and polls them. The figures are sent by deliver_plot, once per
-    # plot-token value, so a poll never carries a figure.
+    # Starts generations, polls them and cancels them. The figures are sent by deliver_plot,
+    # once per plot-token value, so a poll never carries a figure.
     @app.callback(
         [Output('loading-message', 'children'),
             Output('interval-component', 'disabled'),
             Output('submit-val', 'disabled'),
+            Output('submit-val', 'children'),
             Output('plot-token', 'data')],
         [Input('submit-val', 'n_clicks'),
             Input('interval-component', 'n_intervals')],
@@ -907,21 +1090,40 @@ def create_gliqtern_app(requests_pathname_prefix):
         session = sessions.get(session_id)
 
         def unchanged(message):
-            """Outputs that leave the plots on screen and the button enabled."""
-            return (message, True, False, dash.no_update)
+            """Outputs that leave the plots on screen and the Generate button enabled."""
+            return (message, True, False, GENERATE_LABEL, dash.no_update)
+
+        def running():
+            """The progress of the generation running; its button cancels it."""
+            now = time.monotonic()
+            session['polled_at'] = now
+            fraction, label = session['progress']
+            if session['stage'] == "hull":
+                fraction, label, session['surface'] = surface_progress(
+                    session['surface'], surface_step(session['job'].thread.ident), now)
+            return (progress_bar(fraction, label, now - session['started_at']), False, False,
+                    CANCEL_LABEL, dash.no_update)
 
         def start(components):
-            """Generate ``components`` in a separate thread; the button is disabled meanwhile."""
+            """Generate ``components`` in a separate thread, watched by another."""
             session['generation'] += 1
+            now = time.monotonic()
             session.update(plot_ready=False, error_occurred=False, error_message="",
-                           started_at=time.monotonic(), progress=generation_progress("start"))
-            threading.Thread(target=generate_plot, daemon=True,
-                             args=(session, session['generation'], components)).start()
-            return (progress_bar(*session['progress']), False, True, dash.no_update)
+                           started_at=now, polled_at=now, progress=generation_progress("start"),
+                           stage="start", system_running="-".join(components), notice="")
+            session['job'] = Generation(generate_plot,
+                                        (session, session['generation'], components))
+            session['job'].start()
+            threading.Thread(target=watch, args=(session, session['generation']),
+                             daemon=True).start()
+            return running()
 
-        # The Generate button plots the typed system. A system that cannot be plotted, or the
-        # one on screen, redraws nothing.
+        # The button cancels the generation running. Otherwise it plots the typed system; a
+        # system that cannot be plotted, or the one on screen, redraws nothing.
         if 'submit-val' in trigger:
+            if session is not None and cancel_generation(session, "", notice=CANCELLED_MESSAGE):
+                print(f"Cancelled {session['system_running']}", flush=True)
+                return unchanged(CANCELLED_MESSAGE)
             components = parse_system(text_input)
             problem = describe_system_problem(components)
             if problem:
@@ -932,14 +1134,15 @@ def create_gliqtern_app(requests_pathname_prefix):
             return start(components)
 
         if session is None:
-            return (IDLE_MESSAGE, True, False, LANDING_TOKEN)
+            return (IDLE_MESSAGE, True, False, GENERATE_LABEL, LANDING_TOKEN)
 
-        if (not session['plot_ready']
-                and time.monotonic() - session['started_at'] > GENERATION_TIMEOUT):
-            session['generation'] += 1
-            session.update(plot_ready=True, error_occurred=True, error_message=TIMEOUT_MESSAGE)
-        elif not trigger:
-            # A page load shows the session's last plots rather than an error already shown.
+        if not trigger:
+            # A page load (a reload) cancels the generation running and shows the session's
+            # last plots rather than an error already shown.
+            if cancel_generation(session, "", notice=CANCELLED_MESSAGE):
+                print(f"Cancelled {session['system_running']}: its tab reloaded", flush=True)
+            else:
+                session['notice'] = ""
             session['error_occurred'] = False
 
         # A page load or poll of a finished generation stops polling and has deliver_plot send
@@ -947,11 +1150,11 @@ def create_gliqtern_app(requests_pathname_prefix):
         # as they are.
         if session['plot_ready']:
             if trigger:
-                return (progress_bar(*generation_progress("done")), True, True,
+                return (progress_bar(*generation_progress("done")), True, True, GENERATE_LABEL,
                         session['generation'])
-            return ("", True, False, session['generation'])
+            return ("", True, False, GENERATE_LABEL, session['generation'])
 
-        return (progress_bar(*session['progress']), False, True, dash.no_update)
+        return running()
 
     @app.callback(
         [Output('ternary-plot', 'figure'),
@@ -978,16 +1181,20 @@ def create_gliqtern_app(requests_pathname_prefix):
         if session['error_occurred']:
             return (*[dash.no_update] * 4, error_message(session['error_message']), False,
                     dash.no_update)
-        return (session['ternary_plot'], *session['binary_plots'], "", False, session['system'])
+        return (session['ternary_plot'], *session['binary_plots'], session['notice'], False,
+                session['system'])
 
-    # The Generate button is disabled exactly while a plot generates; the tab title follows it.
+    # The button reads Cancel while a plot generates and is disabled while its plots are sent;
+    # the tab title shows both as busy.
     app.clientside_callback(
-        f"""function(busy) {{
+        f"""function(disabled, label) {{
+            const busy = disabled || label === {json.dumps(CANCEL_LABEL)};
             document.title = busy ? {json.dumps(BUSY_TITLE)} : {json.dumps(PAGE_TITLE)};
             return busy;
         }}""",
         Output('title-sink', 'data'),
         Input('submit-val', 'disabled'),
+        Input('submit-val', 'children'),
     )
 
     # Attaches the ternary plot's legend-click phase highlighting and camera-following labels.
