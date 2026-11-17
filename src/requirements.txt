@@ -2,7 +2,7 @@
 
 # gliquid from PyPI. A development build can be pinned instead from a wheel put in wheels/
 # (Dockerfile --find-links), e.g. gliquid==0.3.3.dev4+gfc47062.
-gliquid==0.3.3
+gliquid==0.3.5
 
 # --- ASGI / web stack ---------------------------------------------------------
 fastapi>=0.115,<1.0

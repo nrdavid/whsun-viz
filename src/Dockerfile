@@ -17,10 +17,15 @@ COPY ./app /app
 # cache_mode='sqlite'.
 # The pod runs under an arbitrary UID with HOME=/, so MPLCONFIGDIR and XDG_CACHE_HOME put the
 # matplotlib and fontconfig caches in /tmp.
+# OMP_NUM_THREADS and OPENBLAS_NUM_THREADS give NumPy and SciPy one thread each: the pod's CPU
+# limit is far below the node's core count, which the libraries would otherwise size their
+# thread pools to.
 ENV GLIQUID_OFFLINE=1 \
     GLIQUID_CACHE_DIR=/app/gliqviz/gliquid_cache.sqlite \
     MPLCONFIGDIR=/tmp/matplotlib \
-    XDG_CACHE_HOME=/tmp/.cache
+    XDG_CACHE_HOME=/tmp/.cache \
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1
 
 #
 EXPOSE 8000
