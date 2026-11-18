@@ -20,7 +20,7 @@ import sys
 import flask
 import gliquid.config as gliquid_config
 from gliquid.cache import resolve_backend
-from gliquid.plotting.binary_tx import CORNER_NOTE_NAME
+from gliquid.plotting.binary_tx import CORNER_NOTE_NAME, TxCanvas
 from gliquid.plotting.style import abbreviate_phase_name, standard_formula
 from gliquid.plotting.ternary_surface import (IMPUTED_SUFFIX, MODIFIED_SUFFIX,
                                               USER_DEFINED_SUFFIX, dash_clientside_function)
@@ -256,27 +256,25 @@ TERNARY_WIDTH = round(TERNARY_ASPECT * TERNARY_HEIGHT)
 FONT = "Arial, Helvetica, sans-serif"
 
 
-def style_binary_subplot(fig):
-    """Shrink a package binary phase diagram to a ternary-app sub-plot.
+#: The size and label fonts the binary sub-plots are drawn at; their labels are placed to fit it.
+SUB_CANVAS = TxCanvas(width=SUB_WIDTH, height=SUB_HEIGHT,
+                      margin=(SUB_MARGIN['l'], SUB_MARGIN['r'], SUB_MARGIN['t'], SUB_MARGIN['b']),
+                      label_font=SUB_LABEL_FONT, liquid_font=SUB_L_FONT)
 
-    ``plot_tx`` sets explicit font sizes on its titles and labels, which a figure-level
+
+def style_binary_subplot(fig):
+    """Style a package binary phase diagram drawn at SUB_CANVAS as a ternary-app sub-plot.
+
+    ``plot_tx`` sets explicit font sizes on its titles and notes, which a figure-level
     ``font`` does not override, so each is resized here.
     """
     fig.update_layout(
         showlegend=False,
-        width=SUB_WIDTH,
-        height=SUB_HEIGHT,
         font=dict(family=FONT, size=10, color='black'),
         title=None,
-        margin=SUB_MARGIN,
     )
     fig.update_xaxes(title_font=dict(size=10))
     fig.update_yaxes(title_font=dict(size=10))
-
-    # 100 K of headroom above the plotted range.
-    rng = fig.layout.yaxis.range
-    if rng is not None:
-        fig.update_yaxes(range=[rng[0], rng[1] + 100])
 
     for a in fig.layout.annotations:
         if a.name == CORNER_NOTE_NAME:
@@ -289,10 +287,6 @@ def style_binary_subplot(fig):
             a.yanchor = "top"
             a.y = SUB_COMPONENT_Y
             a.font.size = SUB_COMPONENT_FONT
-        elif a.text == "L":
-            a.font.size = SUB_L_FONT
-        else:
-            a.font.size = SUB_LABEL_FONT
     return fig
 
 
@@ -803,6 +797,7 @@ def build_ternary_plotter(components, binary_L_dict, fit_or_pred, progress=None,
         order="alphabetical",
         edge_mape=True,
         pred_liquidus=True,
+        edge_canvas=SUB_CANVAS,
     )
     print(f"Rendering {'-'.join(ti.components)}: hull_mode={ti.hull_mode}")
     ti.interpolate()
@@ -1976,7 +1971,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                 html.Div(
                     [
                         html.H1([*gliquid_name(), " Ternary Plotter"], className='gl-title'),
-                        html.P(html.B("By Abrar Rauf (arauf@umich.edu), Joshua Willwerth, Shibo Tan, and Wenhao Sun (whsun@umich.edu)"), className='gl-authors'),
+                        html.P(html.B(["by Abrar Rauf (arauf@umich.edu) and", html.Br(), "Joshua Willwerth (willwerj@umich.edu)"]), className='gl-authors'),
                         link_tiles(app.get_asset_url(MAP_THUMB)),
                         html.Div([
                             html.Div("System", className='gl-section'),
@@ -1994,9 +1989,9 @@ def create_gliqtern_app(requests_pathname_prefix):
                         html.P([
                             "This web app generates an interpolated ternary liquidus for the specified ternary system using fitted or predicted binary interaction parameters from the ",
                             *gliquid_name(),
-                            " project (",
+                            " project by Joshua Willwerth, Shibo Tan, Abrar Rauf & Wenhao Sun (",
                             html.A("Sun Research Group", href=GROUP_URL, target="_blank"),
-                            ")"
+                            ", University of Michigan)"
                         ], className='gl-about'),
                         html.P(["This project is made possible by funding from the U.S. Department of Energy (DOE) Office of Science, Basic Energy Sciences Award No. DE-SC0021130 and the National Science Foundation (NSF) Award No. OAC-2209423"], className='gl-about'),
                         html.P(html.I("Note: The accuracy of the ternary liquidus reconstruction is a work-in-progress and is not guaranteed to work as intended for all ternary systems."), className='gl-about')
