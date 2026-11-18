@@ -644,12 +644,13 @@ def apply_edits(ti, edits, units=UNITS[0]):
 
 def phase_rows(plotter, figure, edits, default=()):
     """The editor's rows for a processed ``plotter`` whose 'tx' ``figure`` is drawn: one per
-    solid phase, in legend order, each ``{'name', 'label', 'tag', 'fractions', 'solidus',
-    'liquidus', 'enthalpy', 'entropy', 'shown', 'solidus_set', 'editable', 'dft', 'kind',
-    'changed'}``.
+    solid phase, in legend order, each ``{'name', 'label', 'tag', 'color', 'fractions',
+    'solidus', 'liquidus', 'enthalpy', 'entropy', 'shown', 'solidus_set', 'editable', 'dft',
+    'kind', 'changed'}``.
 
     The label is the legend's name for the phase and the tag what the legend adds to it for a
-    modified, imputed or user-defined phase; the fractions follow the sorted elements, and
+    modified, imputed or user-defined phase, and the color its legend marker's (None for a
+    phase the legend does not list); the fractions follow the sorted elements, and
     the four values are those of FIELDS (a temperature is None for a phase with no liquidus
     field), with ``shown`` holding them as shown_values shows them. ``solidus_set`` marks a phase
     given a solidus; a compound on the 0 K hull, a changed phase and an added one are editable;
@@ -667,8 +668,9 @@ def phase_rows(plotter, figure, edits, default=()):
     compounds = {hull_entry_name(entry) for entry in stable}
     dft = {hull_entry_name(entry) for entry in stable
            if non_dft_entry_kind(entry) is None and not (entry.data or {}).get("imputed")}
-    legend = [trace.meta["gliquid_phase"] for trace in figure.data
-              if isinstance(trace.meta, dict) and trace.meta.get("gliquid_role") == "legend"]
+    colors = {trace.meta["gliquid_phase"]: trace.marker.color for trace in figure.data
+              if isinstance(trace.meta, dict) and trace.meta.get("gliquid_role") == "legend"}
+    legend = list(colors)
     solids = ti.proc_df[ti.proc_df["Phase"] != "L"].drop_duplicates("Phase")
     added = {phase["name"] for phase in edits["added"]}
     names = list(solids["Phase"])
@@ -700,7 +702,7 @@ def phase_rows(plotter, figure, edits, default=()):
                      "label": abbreviate_phase_name(
                          name, names, None if tags.get(name) == USER_DEFINED_SUFFIX
                          else plotter.components),
-                     "tag": tags.get(name, ""),
+                     "tag": tags.get(name, ""), "color": colors.get(str(name)),
                      "fractions": [float(1 - x0 - x1), float(x0), float(x1)],
                      **values, "shown": shown, "solidus_set": solidus_set,
                      "editable": name in compounds or name in asked, "dft": name in dft,
@@ -1236,7 +1238,8 @@ def phase_list_row(row, units, typed=None, locked=(), removed=False, restore=Fal
     label = row.get("label", name)
     plain = re.sub(r"</?sub>", "", label)
     tag = [html.Span(row["tag"], className='gl-ph-tag')] if row.get("tag") else []
-    head = html.Div([html.Span([*phase_label(label), *tag], title=plain, className='gl-ph-name' + (
+    dot = html.Span(className='gl-ph-dot', style={'backgroundColor': row.get("color") or 'transparent'})
+    head = html.Div([dot, html.Span([*phase_label(label), *tag], title=plain, className='gl-ph-name' + (
                          '' if row["kind"] == "default" else ' gl-ph-changed')), button],
                     className='gl-ph-row-head')
     values = [] if restore else [html.Div([part for which in FIELDS for part in cell(which)],
@@ -1612,7 +1615,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                 .gl-ph-row { margin-top: 6px; }
                 .gl-ph-row-head {
                     display: grid;
-                    grid-template-columns: minmax(0, 1fr) 20px;
+                    grid-template-columns: 10px minmax(0, 1fr) 20px;
                     column-gap: 4px;
                     align-items: center;
                 }
@@ -1644,6 +1647,8 @@ def create_gliqtern_app(requests_pathname_prefix):
                 .gl-ph-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                 .gl-ph-removed .gl-ph-name { text-decoration: line-through; color: #999999; }
                 .gl-ph-tag { font-weight: 400; color: #555555; }
+                .gl-ph-dot { width: 10px; height: 10px; border-radius: 50%; }
+                .gl-ph-removed .gl-ph-dot { opacity: 0.4; }
                 .gl-ph-changed, .gl-ph-row:has(.gl-ph-changed) .gl-ph-name { font-weight: 700; }
                 .gl-ph-input:disabled { background: #eeeeee; color: #777777; cursor: not-allowed; }
                 .gl-ph-lock, .gl-ph-lock label { display: flex; align-items: center; margin: 0; }
@@ -1999,7 +2004,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                     style={
                         'width': f'{SIDEBAR_WIDTH}px', 'boxSizing': 'border-box',
                         'height': '100vh', 'padding': f'{SIDEBAR_PADDING}px',
-                        'position': 'fixed', 'left': 0, 'top': 0, 'backgroundColor': '#eef0f3',
+                        'position': 'sticky', 'top': 0, 'flex': 'none', 'backgroundColor': '#eef0f3',
                         'fontFamily': FONT, 'color': '#18191d',
                         'boxShadow': '2px 0 5px rgba(0,0,0,0.1)', 'overflowY': 'auto',
                         # The text keeps its width whether or not the scrollbar shows.
@@ -2041,8 +2046,8 @@ def create_gliqtern_app(requests_pathname_prefix):
                     style={
                         'display': 'flex',
                         'alignItems': 'flex-start',
-                        'width': 'max-content',
-                        'marginLeft': f'{SIDEBAR_WIDTH + PLOT_GAP}px',
+                        'flex': 'none',
+                        'marginLeft': f'{PLOT_GAP}px',
                     }
                 ),
 
@@ -2071,7 +2076,10 @@ def create_gliqtern_app(requests_pathname_prefix):
                 # Outputs of the busy-title and ternary-plot clientside callbacks
                 dcc.Store(id='title-sink'),
                 dcc.Store(id='ternary-js-sink'),
-            ]
+            ],
+            # The sidebar and the plot area side by side, scrolled sideways as one.
+            style={'display': 'flex', 'alignItems': 'flex-start', 'width': 'max-content',
+                   'minWidth': '100%'},
         )
 
     app.layout = serve_layout
