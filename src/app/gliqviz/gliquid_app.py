@@ -239,13 +239,16 @@ TERNARY_XY_STRETCH = 1.3
 # plot, which sits TERNARY_TOP below the top of the binary column. Nothing scales with the window.
 SIDEBAR_WIDTH, SIDEBAR_PADDING = 330, 10
 PLOT_GAP = 20
-TERNARY_TOP = 20
 # Height of the liquidus key above the binary column, below LEGEND_BAR_TOP of padding.
 LEGEND_BAR_HEIGHT, LEGEND_BAR_TOP = 24, 10
-# The ternary plot ends level with the bottom of the binary column, at width/height
+# The ternary scene spans the binary plot frames, from the top of the first to the bottom of
+# the last, below a title band TERNARY_TITLE_MARGIN high; the plot's width/height is
 # TERNARY_ASPECT.
 TERNARY_ASPECT = 950 / 900
-TERNARY_HEIGHT = LEGEND_BAR_TOP + LEGEND_BAR_HEIGHT + 3 * SUB_HEIGHT - TERNARY_TOP
+TERNARY_TITLE_MARGIN = 40
+TERNARY_TOP = LEGEND_BAR_TOP + LEGEND_BAR_HEIGHT + SUB_MARGIN['t'] - TERNARY_TITLE_MARGIN
+TERNARY_HEIGHT = (LEGEND_BAR_TOP + LEGEND_BAR_HEIGHT + 3 * SUB_HEIGHT - SUB_MARGIN['b']
+                  - TERNARY_TOP)
 TERNARY_WIDTH = round(TERNARY_ASPECT * TERNARY_HEIGHT)
 
 
@@ -1258,6 +1261,7 @@ def ternary_figure(plotter):
         showlegend=True,
         width=TERNARY_WIDTH,
         height=TERNARY_HEIGHT,
+        margin=dict(t=TERNARY_TITLE_MARGIN, b=0),
         font=dict(family=FONT, size=14, color='black'),
         paper_bgcolor='white',
     )
