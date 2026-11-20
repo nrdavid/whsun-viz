@@ -13,6 +13,7 @@ from urllib.parse import quote
 from dash import dcc, html
 from dash.dependencies import ALL, Input, Output, State
 from dash.exceptions import PreventUpdate
+import plotly.colors
 import plotly.graph_objects as go
 import threading
 import ctypes
@@ -21,14 +22,15 @@ import flask
 import gliquid.config as gliquid_config
 from gliquid.cache import resolve_backend
 from gliquid.plotting.binary_tx import CORNER_NOTE_NAME, TxCanvas
-from gliquid.plotting.style import abbreviate_phase_name, standard_formula
+from gliquid.plotting.style import abbreviate_phase_name, contrast_text, standard_formula
 from gliquid.plotting.ternary_surface import (IMPUTED_SUFFIX, MODIFIED_SUFFIX,
                                               USER_DEFINED_SUFFIX, dash_clientside_function)
 from pymatgen.core import Composition, Element
 from gliquid.api import hull_entry_name
 from gliquid.cache import non_dft_entry_kind
 from gliquid.phase import EV_ATOM_TO_J_MOL
-from gliquid.ternary import PRESCREEN_CEILING_K, TernaryLiquidInterpolation, TLIPlotter
+from gliquid.imputation.ternary_imputation import phase_top, phase_tops
+from gliquid.ternary import TernaryLiquidInterpolation, TLIPlotter
 import math
 import re
 import warnings
@@ -295,10 +297,9 @@ def style_binary_subplot(fig):
 MAX_ADDED_PHASES = 10
 #: Largest move, K, of a locked temperature that an update may make.
 LOCK_TOLERANCE_K = 5.0
-#: Largest gap, K, between a temperature asked for and the end of the phase's drawn field at
-#: which the phase list shows the temperature asked for: a small field's ends lie between the
-#: vertices of the drawn surface.
-ASKED_TOLERANCE_K = 25.0
+#: Largest gap, K, between a Tmax asked for and the one drawn at which the phase list shows the
+#: one asked for.
+ASKED_TOLERANCE_K = 0.5
 #: Temperatures a phase may be given, C.
 TEMPERATURE_LIMITS = (-273.0, 5000.0)
 #: Largest denominator tried when a composition is named as a whole-number ratio, and how far
@@ -307,24 +308,34 @@ NAME_DENOMINATOR, NAME_TOLERANCE = 40, 1e-3
 #: Largest fraction difference at which an added phase sits on a phase already there.
 SAME_COMPOSITION = 1e-3
 #: Phase names a user may type.
-NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ().+_-]{0,29}")
+#: Most characters a typed phase name may have.
+NAME_LIMIT = 12
+NAME_PATTERN = re.compile(rf"[A-Za-z0-9][A-Za-z0-9 ().+_-]{{0,{NAME_LIMIT - 1}}}")
 
 
 #: The phase edits made since the plots on screen were drawn, when there are none: phases
 #: added (as read_added_phase returns them), names marked for removal, and names of removed
 #: phases to keep again.
-NO_PENDING = {"added": [], "removed": [], "restored": []}
+NO_PENDING = {"added": [], "removed": [], "restored": [], "reverted": []}
 
 
-#: The four values the editor shows for a phase, in row order: the temperatures in C, the
-#: formation enthalpy in eV/atom and the entropy in J/mol-atom/K.
-FIELDS = ("solidus", "liquidus", "enthalpy", "entropy")
-#: What a message calls each of FIELDS.
-FIELD_NAMES = {"solidus": "min liquidus temp", "liquidus": "max liquidus temp",
-               "enthalpy": "formation enthalpy", "entropy": "entropy"}
+#: The three values the editor shows for a phase, in row order: the highest temperature it is
+#: stable at (its transition temperature, Tmax) in C, the formation enthalpy in eV/atom and the
+#: entropy in J/mol-atom/K.
+FIELDS = ("tmax", "enthalpy", "entropy")
+#: What a hover text calls each of FIELDS, and what a message and a column head write for it
+#: (see symbol_children).
+FIELD_NAMES = {"tmax": "transition temperature", "enthalpy": "formation enthalpy",
+               "entropy": "formation entropy"}
+FIELD_SYMBOLS = {"tmax": "Ttrans", "enthalpy": "\u0394Hf", "entropy": "\u0394Sf"}
 #: The key ``edit_phases`` takes each of FIELDS under.
-FIELD_KEYS = {"solidus": "solidus", "liquidus": "temperature",
-              "enthalpy": "enthalpy", "entropy": "entropy"}
+FIELD_KEYS = {"tmax": "temperature", "enthalpy": "enthalpy", "entropy": "entropy"}
+#: What the hover text of the phases a phase turns into above its Tmax calls the change, by
+#: gliquid's PhaseTop kind.
+TRANSITION_NAMES = {"congruent": "Melts congruently",
+                    "incongruent": "Melts incongruently (peritectic)",
+                    "transition": "Allotropic transition",
+                    "decomposition": "Decomposes in the solid state"}
 #: The unit systems the editor shows an enthalpy and an entropy in. Rows and targets hold
 #: eV/atom and J/mol-atom/K.
 UNITS = ("eV/atom", "J/mol")
@@ -341,6 +352,9 @@ DECIMALS = {"eV/atom": {"enthalpy": 4, "entropy": 4}, "J/mol": {"enthalpy": 2, "
 ENTHALPY_LIMITS, ENTROPY_LIMITS = (-10.0, 10.0), (-200.0, 200.0)
 #: How many of a phase's FIELDS can be set at once: the rest follow from them.
 FREE_FIELDS = 2
+#: How many models a session's preview keeps, by the edits applied to them, and how many dry
+#: runs each keeps.
+PREVIEW_MODELS, PREVIEW_RUNS = 2, 200
 #: A formation enthalpy within this of the 0 K hull, J/mol-atom, is not on it.
 HULL_CLEARANCE_J = 1.0
 
@@ -349,13 +363,19 @@ def no_edits():
     """A system's phases as the store holds them: nothing added, changed or removed. ``added``
     holds phases as read_added_phase returns them, ``targets`` maps a changed phase to its
     target, and ``removed`` names the phases left out. A target sets one or two of FIELDS,
-    ``{field: value}``; a liquidus alone leaves the phase stable from 0 K with no entropy. A
+    ``{field: value}``; a Tmax alone leaves the phase stable from 0 K with no entropy. A
     target's ``'force'`` marks a phase read from an uploaded list."""
     return {"added": [], "targets": {}, "removed": []}
 
 
 class EditStopped(Exception):
-    """A phase edit that leaves the plots on screen."""
+    """A phase edit that leaves the plots on screen. ``problems`` maps each phase it stopped
+    for to why (``""`` for the system as a whole)."""
+
+    def __init__(self, problems):
+        super().__init__("; ".join(f"{name}: {why}" if name else why
+                                   for name, why in problems.items()))
+        self.problems = problems
 
 
 def shown_value(which, value, units):
@@ -364,7 +384,7 @@ def shown_value(which, value, units):
     and rounded to DECIMALS."""
     if value is None:
         return None
-    if which in ("solidus", "liquidus"):
+    if which == "tmax":
         return math.floor(value + 0.5)
     return round(value * UNIT_SCALES[units][which], DECIMALS[units][which]) + 0.0
 
@@ -407,9 +427,9 @@ def read_temperature(value):
     try:
         value = float(value)
     except (TypeError, ValueError):
-        return None, "Enter the temperature in \u00b0C."
+        return None, "The temperature must be a number."
     if not TEMPERATURE_LIMITS[0] < value < TEMPERATURE_LIMITS[1]:
-        return None, (f"The temperature must lie between {TEMPERATURE_LIMITS[0]:.0f} and "
+        return None, (f"The temperature must be between {TEMPERATURE_LIMITS[0]:.0f} and "
                       f"{TEMPERATURE_LIMITS[1]:.0f} \u00b0C.")
     return value, None
 
@@ -417,16 +437,16 @@ def read_temperature(value):
 def read_value(which, value, units):
     """``(value, problem)`` of a value of field ``which`` typed in ``units``: a temperature in
     C, an enthalpy in eV/atom, an entropy in J/mol-atom/K."""
-    if which in ("solidus", "liquidus"):
+    if which == "tmax":
         return read_temperature(value)
     unit = UNIT_LABELS[units][which]
     try:
         value = float(value) / UNIT_SCALES[units][which]
     except (TypeError, ValueError):
-        return None, f"Enter the {FIELD_NAMES[which]} in {unit}."
+        return None, f"{FIELD_SYMBOLS[which]} must be a number."
     low, high = ENTHALPY_LIMITS if which == "enthalpy" else ENTROPY_LIMITS
     if not low < value < high:
-        return None, (f"The {FIELD_NAMES[which]} must lie between "
+        return None, (f"{FIELD_SYMBOLS[which]} must be between "
                       f"{shown_value(which, low, units):g} and "
                       f"{shown_value(which, high, units):g} {unit}.")
     return value, None
@@ -434,8 +454,7 @@ def read_value(which, value, units):
 
 def read_target(given, units):
     """``(target, problem)``: the target (see no_edits) the values ``given`` (field -> value
-    typed in ``units``, blanks included) ask for an added phase: two of ADD_FIELDS, or a
-    liquidus or an enthalpy alone."""
+    typed in ``units``, blanks included) ask for an added phase: one or both of ADD_FIELDS."""
     target = {}
     for which in ADD_FIELDS:
         if given.get(which) in (None, ""):
@@ -443,14 +462,10 @@ def read_target(given, units):
         target[which], problem = read_value(which, given[which], units)
         if problem:
             return None, problem
-    if set(target) == {"solidus"}:
-        return None, "Give the max liquidus temp or ΔH with the min liquidus temp."
-    if not target or len(target) > FREE_FIELDS:
-        return None, "Give one or two of the min liquidus temp, the max liquidus temp and ΔH."
+    if not target:
+        return None, "Enter at least one property."
     if set(target) == {"enthalpy"}:
         target["entropy"] = 0.0
-    if set(target) == {"solidus", "liquidus"} and not target["solidus"] < target["liquidus"]:
-        return None, "The min liquidus temp must lie below the max."
     return target, None
 
 
@@ -469,12 +484,13 @@ def read_added_phase(amounts, elements, name, given, units, rows, taken):
     for row in rows:
         gap = max(abs(fractions[el] - f) for el, f in zip(ordered, row["fractions"]))
         if gap <= SAME_COMPOSITION:
-            return None, f"{row['name']} already sits at this composition: edit it instead."
-    name = (name or "").strip() or phase_name(fractions)
-    if not NAME_PATTERN.fullmatch(name):
-        return None, "Use up to 30 letters, digits, spaces and ( ) . + _ - in the name."
+            return None, f"{row['name']} already has this composition."
+    name = (name or "").strip()
+    if name and not NAME_PATTERN.fullmatch(name):
+        return None, f"A name takes up to {NAME_LIMIT} letters, digits, spaces and ( ) . + _ -"
+    name = name or phase_name(fractions)
     if name in taken:
-        return None, f"{name} already names a phase: give this one another name."
+        return None, f"The name {name} is in use."
     return {"name": name, "fractions": fractions, "target": target}, None
 
 
@@ -486,7 +502,7 @@ def gliquid_target(target):
         value = target.get(which)
         if value is None:
             continue
-        if which in ("solidus", "liquidus"):
+        if which == "tmax":
             value += 273.15
         elif which == "enthalpy":
             value *= EV_ATOM_TO_J_MOL
@@ -510,15 +526,17 @@ def edit_list(edits):
 
 #: Why a phase edit was refused, by gliquid's rejection code.
 REFUSALS = {
-    "below_solidus": "no liquid reaches its composition at that temperature",
-    "unstable": "at that temperature it would not be stable at 0 K",
-    "not_stable": "it would not be stable once the other edits are in",
-    "no_entropy": ("the enthalpy that would bring it onto the hull at that min liquidus temp is "
-                   "on the 0 K hull"),
-    "name_taken": "its name is already in use",
-    "dft_covers": "a phase already sits at its composition",
-    "occupied": "a phase already sits at its composition",
+    "below_solidus": "Ttrans is too low",
+    "unstable": "not stable at 0 K with this Ttrans",
+    "not_stable": "not stable with the other edits",
+    "no_entropy": "it would join the hull on heating at this Ttrans",
+    "name_taken": "its name is in use",
+    "dft_covers": "a phase already has this composition",
+    "occupied": "a phase already has this composition",
 }
+#: How the editor has gliquid place a phase: as asked or held at the hull limit, against the
+#: liquid itself, with nothing drawn or written.
+PLACEMENT = dict(screen=False, write_cache=False, hold_hull=True, force=True, refine_liquid=True)
 
 
 def shown_amount(which, value, units):
@@ -529,62 +547,36 @@ def shown_amount(which, value, units):
     return f"{shown_value(which, value, units):g} {UNIT_LABELS[units][which]}"
 
 
-def refusal(record, edit, units):
-    """Why the phase ``edit`` of ``record`` is not applied, for the sidebar with the energies
-    in ``units``; None for one that is. ``edit`` is keyed as ``edit_phases`` takes it."""
-    def nearest(text, otherwise):
-        limit = record.solidus_limit_k
-        return otherwise if limit is None else text.format(limit - 273.15)
-
-    if record.accepted:
-        top = record.temperature_k
-        if top is not None and record.melts is False:
-            return (f"no liquid reaches its composition at {top - 273.15:.0f} \u00b0C, so that "
-                    f"cannot be its max liquidus temp")
-        floats = record.enthalpy >= record.hull_enthalpy - HULL_CLEARANCE_J
-        if floats and record.solidus_k is None and not record.entropy > 0.0:
-            hull = shown_amount("enthalpy", record.hull_enthalpy, units)
-            return (f"its \u0394H of {shown_amount('enthalpy', record.enthalpy, units)} is not below "
-                    f"the 0 K hull ({hull}) and its \u0394S is not positive, so it is never "
-                    f"stable; give a \u0394H below {hull} or a positive \u0394S")
-        return None
-    if "enthalpy" in edit or "entropy" in edit:
-        if record.code == "no_entropy" and "0 K hull" in record.reason:
-            return (f"that \u0394H is on the 0 K hull, so the phase is stable below any min "
-                    f"liquidus temp; a \u0394H above "
-                    f"{shown_amount('enthalpy', record.hull_enthalpy, units)} is off it")
-        if record.code == "no_entropy" and record.temperature_k is None:
-            return ("with that \u0394S it would leave the hull at the min liquidus temp, not "
-                    "come onto it")
-        if record.code == "no_entropy":
-            return ("with that \u0394S it would come onto the hull at the max liquidus temp, "
-                    "not leave it")
-    if record.solidus_k is not None and record.code == "below_solidus":
-        return ("no liquid reaches its composition at that min liquidus temp; "
-                + nearest("the lowest that works is {:.0f} \u00b0C", "no higher one works either"))
-    if record.solidus_k is not None and record.code == "no_entropy" and "0 K hull" not in record.reason:
-        return ("no entropy keeps it on the hull only between those liquidus temps; "
-                + nearest("the highest min liquidus temp that works is {:.0f} \u00b0C",
-                          "its min liquidus temp cannot be moved"))
-    return REFUSALS.get(record.code, record.reason)
+def lowest_tmax(record):
+    """The lowest Tmax, whole degrees C, that works for a ``record`` refused for a Tmax below
+    the liquid; None for any other."""
+    return None if record.lowest_top_k is None else math.ceil(record.lowest_top_k - 273.15)
 
 
-def too_stable(ti, record, units):
-    """Why an accepted ``record`` of ``ti`` is not applied for its entropy, with the energies in
-    ``units``: a line phase whose entropy keeps it below the liquid at its composition up to
-    the top of TEMPERATURE_LIMITS; None for one that melts below it. Names the entropy it
-    must stay below and the one at and above which it never melts (below the model's
-    PRESCREEN_CEILING_K)."""
-    if not record.accepted or not record.entropy > 0.0:
-        return None
+def refusal(ti, record, edit, units):
+    """Why the phase ``edit`` of ``record`` is not applied to ``ti``, for the sidebar with the
+    energies in ``units``; None for one that is. ``edit`` is keyed as ``edit_phases`` takes
+    it. An accepted phase is refused where it is stable at no temperature, and where its
+    entropy keeps it below the liquid at its composition up to the top of TEMPERATURE_LIMITS."""
+    if not record.accepted:
+        if record.code == "no_entropy" and ("enthalpy" in edit or "entropy" in edit):
+            given = FIELD_SYMBOLS["entropy" if "entropy" in edit else "enthalpy"]
+            return f"{given} is too high for this Ttrans"
+        if record.code == "below_solidus" and record.lowest_top_k is not None:
+            return f"Ttrans must be at least {lowest_tmax(record)} \u00b0C"
+        return REFUSALS.get(record.code, record.reason)
+    if not record.entropy > 0.0:
+        if record.enthalpy < record.hull_enthalpy - HULL_CLEARANCE_J:
+            return None
+        return (f"never stable: \u0394Hf must be below "
+                f"{shown_amount('enthalpy', record.hull_enthalpy, units)} or \u0394Sf above 0")
+    top = TEMPERATURE_LIMITS[1] + 273.15
     x = [record.fractions[element] for element in ti.components[1:]]
-    melts, never = ((record.enthalpy - ti.liquid_gibbs(x, top)) / top
-                    for top in (TEMPERATURE_LIMITS[1] + 273.15, PRESCREEN_CEILING_K))
+    melts = (record.enthalpy - ti.liquid_gibbs(x, top)) / top
     if record.entropy < melts:
         return None
-    return (f"it would not melt below {TEMPERATURE_LIMITS[1]:.0f} °C; give a ΔS below "
-            f"{shown_amount('entropy', melts, units)} (at "
-            f"{shown_amount('entropy', never, units)} or more it never melts)")
+    return (f"\u0394Sf must be below {shown_amount('entropy', melts, units)} to melt under "
+            f"{TEMPERATURE_LIMITS[1]:.0f} \u00b0C")
 
 
 def displacement_note(record, edit, units):
@@ -597,63 +589,166 @@ def displacement_note(record, edit, units):
     them = "it" if len(record.displaces) == 1 else "them"
     top = None if record.temperature_k is None else f"{record.temperature_k - 273.15:.0f} \u00b0C"
     if record.enthalpy != record.inverted_enthalpy:
-        return (f"{record.name} held at \u0394H {shown_amount('enthalpy', record.enthalpy, units)}, "
-                f"\u0394S {shown_amount('entropy', record.entropy, units)} to keep {names} on the "
+        return (f"{record.name} held at \u0394Hf {shown_amount('enthalpy', record.enthalpy, units)}, "
+                f"\u0394Sf {shown_amount('entropy', record.entropy, units)} to keep {names} on the "
                 f"0 K hull.")
     note = f"{names} pushed off the 0 K hull by {record.name}."
     limit = record.hull_limit_enthalpy
     if limit is None:
-        return f"{note} No \u0394H of {record.name} keeps {them}."
-    keeps = f"\u0394H \u2265 {shown_amount('enthalpy', limit, units)} keeps {them}"
+        return f"{note} No \u0394Hf of {record.name} keeps {them}."
+    keeps = f"\u0394Hf \u2265 {shown_amount('enthalpy', limit, units)} keeps {them}"
     if "enthalpy" in edit or top is None:
         return f"{note} {keeps}."
     floor = (limit - record.enthalpy) / record.temperature_k + record.entropy
     if "entropy" in edit and floor < (record.support_entropy or 0.0):
-        return f"{note} \u0394S \u2265 {shown_amount('entropy', floor, units)} keeps {them} at {top}."
+        return f"{note} \u0394Sf \u2265 {shown_amount('entropy', floor, units)} keeps {them} at {top}."
     return f"{note} {keeps}, but then {top} is out of reach."
 
 
-def apply_edits(ti, edits, units=UNITS[0]):
+def apply_edits(ti, edits, units):
     """Apply a session's ``edits`` to ``ti`` and return what the sidebar says of them, with the
     energies in ``units``: one note per phase that pushes others off the 0 K hull or was held
-    at the enthalpy that keeps them. A phase given a max liquidus temp alone is held where an
-    entropy still reaches that temperature; any other is placed as asked. Raises EditStopped
-    for an edit that cannot be applied."""
+    at the enthalpy that keeps them. A phase given a Tmax alone is held where an entropy still
+    reaches that temperature; any other is placed as asked. Raises EditStopped for an edit that
+    cannot be applied."""
     asked = edit_list(edits)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            records = ti.edit_phases(asked, screen=False, write_cache=False, hold_hull=True,
-                                     force=True)
+            records = ti.edit_phases(asked, **PLACEMENT)
     except ValueError as error:
-        raise EditStopped(f"Not applied: {error}") from error
+        raise EditStopped({"": f"Not applied: {error}"}) from error
     placed = [edit for edit in asked if "remove" not in edit]
-    refused = [f"{record.name}: {why}." for record, edit in zip(records, placed)
-               if (why := refusal(record, edit, units) or too_stable(ti, record, units))]
+    refused = {record.name: why for record, edit in zip(records, placed)
+               if (why := refusal(ti, record, edit, units))}
     if refused:
-        raise EditStopped("Not applied. " + " ".join(refused))
+        raise EditStopped(refused)
     return [note for record, edit in zip(records, placed)
             if (note := displacement_note(record, edit, units))]
 
 
+def transition(top, labels):
+    """``{'tmax', 'kind', 'products'}`` of a gliquid ``PhaseTop`` (None for a phase stable at no
+    temperature): its Tmax in C (None above the model's ceiling), its kind and the names of the
+    phases it turns into, the liquid first as "L", each named by ``labels`` where it holds it."""
+    if top is None or top.temperature_k is None:
+        return {"tmax": None, "kind": None, "products": []}
+    names = ["L" if phase == "L" else labels.get(phase, phase)
+             for phase, _ in sorted(top.products, key=lambda item: item[0] != "L")]
+    return {"tmax": top.temperature_k - 273.15, "kind": top.kind, "products": names}
+
+
+def transition_title(name, top):
+    """The hover text of what the phase ``name`` turns into, ``top`` (see transition)."""
+    if top["kind"] is None:
+        return f"{name} is stable at no temperature" if top["tmax"] is None else ""
+    into = " + ".join("liquid" if product == "L" else re.sub(r"</?sub>", "", product)
+                      for product in top["products"])
+    return (f"{TRANSITION_NAMES[top['kind']]} at {shown_value('tmax', top['tmax'], UNITS[0])} "
+            f"\u00b0C into {into}")
+
+
+def preview_phases(components, applied, edits, rows, units, models, added=False):
+    """What an update would give each phase whose target in ``edits`` differs from its
+    ``applied`` one, of the ``rows`` on screen and, with ``added``, of the phases ``edits``
+    adds: ``{name: {'values', 'top', 'problem', 'floor'}}``. ``values`` holds the FIELDS its
+    target leaves free (Tmax in C, the enthalpy in eV/atom and the entropy; None for a phase
+    the update would refuse) and ``top`` what it turns into above its Tmax (see transition;
+    None for a refused phase), from a dry run on ``components`` with the other phases'
+    ``applied`` edits and the removals of ``edits``; ``problem`` says, with the energies in
+    ``units``, why the update would refuse it (None where it would not); ``floor`` is the
+    lowest Tmax that works for a phase refused for a Tmax below the liquid. ``models`` (an
+    OrderedDict) keeps the last PREVIEW_MODELS models built, by the edits applied to them,
+    each with its dry runs."""
+    asked, had = edit_targets(edits), edit_targets(applied)
+    drawn = {row["name"]: row for row in rows}
+    changed = [name for name, target in asked.items()
+               if (name in drawn or added) and target != had.get(name)]
+    if not changed:
+        return {}
+    kept = {phase["name"] for phase in edits["added"]}
+    base = {"added": [phase for phase in applied["added"]
+                      if phase["name"] not in changed and phase["name"] in kept],
+            "targets": {name: target for name, target in applied["targets"].items()
+                        if name not in changed},
+            "removed": list(edits["removed"])}
+    key = json.dumps(["-".join(components), base], sort_keys=True)
+    ti, runs = models.get(key) or (None, {})
+    if ti is None:
+        ti = ternary_model(components, *lookup_binary_parameters(components))
+        if any(base.values()):
+            apply_edits(ti, base, units)
+        models[key] = ti, runs
+        while len(models) > PREVIEW_MODELS:
+            models.popitem(last=False)
+    else:
+        models.move_to_end(key)
+    if len(runs) > PREVIEW_RUNS:
+        runs.clear()
+    listed = {edit.get("phase", edit.get("name")): edit for edit in edit_list(edits)
+              if "remove" not in edit}
+    labels = {row["name"]: row["label"] for row in rows}
+    out = {}
+    for name in changed:
+        edit = listed[name]
+        run = runs.setdefault(json.dumps(edit, sort_keys=True), {})
+        if not run:
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    run["record"] = ti.edit_phases([edit], apply=False, **PLACEMENT)[0]
+            except ValueError as error:
+                run["error"] = str(error)
+        record = run.get("record")
+        problem = run.get("error") or refusal(ti, record, edit, units)
+        if not problem and "top" not in run:
+            run["top"] = phase_top(ti, record.fractions, record.enthalpy, record.entropy,
+                                   exclude=[name], refine_liquid=True,
+                                   start_k=record.temperature_k and record.temperature_k + 1.0)
+        top = None if problem else transition(run["top"], labels)
+        if top is not None and top["tmax"] is None:
+            problem, top = "not stable at any temperature", None
+        values = dict.fromkeys(which for which in FIELDS if which not in asked[name])
+        if not problem:
+            found = {"tmax": top["tmax"], "enthalpy": record.enthalpy / EV_ATOM_TO_J_MOL,
+                     "entropy": record.entropy}
+            values = {which: found[which] for which in values}
+        out[name] = {"values": values, "top": top, "problem": problem,
+                     "floor": None if record is None else lowest_tmax(record)}
+    return out
+
+
+def boxes_by_phase(ids, values):
+    """The ``values`` of the phase list's boxes with ``ids`` (each ``{'name', 'which'}``), as
+    ``{name: {which: value}}``."""
+    out = {}
+    for item, value in zip(ids, values):
+        out.setdefault(item['name'], {})[item['which']] = value
+    return out
+
+
+def edit_targets(edits):
+    """The targets of ``edits`` (see no_edits), the added phases' with them, by name."""
+    return {**edits["targets"], **{phase["name"]: phase["target"] for phase in edits["added"]}}
+
+
 def phase_rows(plotter, figure, edits, default=()):
     """The editor's rows for a processed ``plotter`` whose 'tx' ``figure`` is drawn: one per
-    solid phase, in legend order, each ``{'name', 'label', 'tag', 'color', 'fractions',
-    'solidus', 'liquidus', 'enthalpy', 'entropy', 'shown', 'solidus_set', 'editable', 'dft',
-    'kind', 'changed'}``.
+    solid phase, in legend order, each ``{'name', 'label', 'tag', 'color', 'fractions', 'tmax',
+    'enthalpy', 'entropy', 'top', 'shown', 'editable', 'dft', 'kind', 'changed'}``.
 
     The label is the legend's name for the phase and the tag what the legend adds to it for a
     modified, imputed or user-defined phase, and the color its legend marker's (None for a
-    phase the legend does not list); the fractions follow the sorted elements, and
-    the four values are those of FIELDS (a temperature is None for a phase with no liquidus
-    field), with ``shown`` holding them as shown_values shows them. ``solidus_set`` marks a phase
-    given a solidus; a compound on the 0 K hull, a changed phase and an added one are editable;
-    ``dft`` marks a compound whose hull entry is a DFT one. A changed or added phase shows the
-    temperatures asked for where its field ends within ASKED_TOLERANCE_K of them. ``changed``
-    lists the FIELDS an edit left at a value other than the one shown in ``default``, the rows
-    of the system without edits."""
+    phase the legend does not list); the fractions follow the sorted elements, and the three
+    values are those of FIELDS (Tmax is None for a solid solution and a phase stable at no
+    temperature), with ``top`` what the phase turns into above its Tmax (see transition; None
+    for a solid solution), ``composition`` the mole fractions by element and
+    ``shown`` the values as shown_values shows them. A compound on the 0 K hull, a changed phase
+    and an added one are editable; ``dft`` marks a compound whose hull entry is a DFT one. A
+    changed or added phase shows the Tmax asked for where its drawn one lies within
+    ASKED_TOLERANCE_K of it. ``changed`` lists the FIELDS an edit left at a value other than the
+    one shown in ``default``, the rows of the system without edits."""
     ti = plotter._ti
-    ranges = plotter.liquidus_ranges()
     tags = {**dict.fromkeys(ti.user_phase_names(), USER_DEFINED_SUFFIX),
             **dict.fromkeys(ti.imputed_phase_names(), IMPUTED_SUFFIX),
             **dict.fromkeys(ti.modified_phase_names(), MODIFIED_SUFFIX)}
@@ -668,21 +763,26 @@ def phase_rows(plotter, figure, edits, default=()):
     solids = ti.proc_df[ti.proc_df["Phase"] != "L"].drop_duplicates("Phase")
     added = {phase["name"] for phase in edits["added"]}
     names = list(solids["Phase"])
-    asked = {**edits["targets"], **{phase["name"]: phase["target"] for phase in edits["added"]}}
+    where = {name: dict(zip(plotter.components, (float(1 - x0 - x1), float(x0), float(x1))))
+             for name, x0, x1 in zip(names, solids["x0"], solids["x1"])}
+    labels = {name: abbreviate_phase_name(name, names, None if tags.get(name) == USER_DEFINED_SUFFIX
+                                          or formula_fractions(name) is not None
+                                          and not spells_composition(name, where[name])
+                                          else plotter.components) for name in names}
+    tops = phase_tops(ti, names, refine_liquid=True)
+    asked = edit_targets(edits)
     original = {row["name"]: row for row in default}
     rows = []
     for name, x0, x1, enthalpy, entropy in zip(names, solids["x0"], solids["x1"], solids["H"],
                                                solids["S"]):
-        low, high = ranges.get(name, (None, None))
+        top = transition(tops[name], labels) if name in tops else None
         target = asked.get(name, {})
-        if high is not None and abs(high - target.get("liquidus", math.inf)) <= ASKED_TOLERANCE_K:
-            high = target["liquidus"]
-        solidus_set = target.get("solidus") is not None
-        if low is not None and solidus_set and abs(low - target["solidus"]) <= ASKED_TOLERANCE_K:
-            low = target["solidus"]
+        tmax = (top or {}).get("tmax")
+        if tmax is not None and abs(tmax - target.get("tmax", math.inf)) <= ASKED_TOLERANCE_K:
+            top["tmax"] = tmax = target["tmax"]
         kind = "added" if name in added else "changed" if name in edits["targets"] else "default"
-        values = {"solidus": low, "liquidus": high,
-                  "enthalpy": float(enthalpy) / EV_ATOM_TO_J_MOL, "entropy": float(entropy)}
+        values = {"tmax": tmax, "enthalpy": float(enthalpy) / EV_ATOM_TO_J_MOL,
+                  "entropy": float(entropy)}
         shown = shown_values(values)
         was = original.get(name, {}).get("shown")
         if kind == "default":
@@ -692,13 +792,10 @@ def phase_rows(plotter, figure, edits, default=()):
         else:
             changed = [which for which in FIELDS
                        if any(shown[units][which] != was[units][which] for units in UNITS)]
-        rows.append({"name": str(name),
-                     "label": abbreviate_phase_name(
-                         name, names, None if tags.get(name) == USER_DEFINED_SUFFIX
-                         else plotter.components),
+        rows.append({"name": str(name), "label": labels[name], "composition": where[name],
                      "tag": tags.get(name, ""), "color": colors.get(str(name)),
                      "fractions": [float(1 - x0 - x1), float(x0), float(x1)],
-                     **values, "shown": shown, "solidus_set": solidus_set,
+                     **values, "top": top, "shown": shown,
                      "editable": name in compounds or name in asked, "dft": name in dft,
                      "kind": kind, "changed": changed})
     rows.sort(key=lambda row: legend.index(row["name"]) if row["name"] in legend
@@ -706,19 +803,40 @@ def phase_rows(plotter, figure, edits, default=()):
     return rows
 
 
+#: The share of the plotted temperature range left under the lowest Ttrans that widen_window
+#: lowers the window to.
+WINDOW_PAD = 0.1
+
+
+def widen_window(plotter, rows):
+    """Lower the temperature window of a processed ``plotter`` to show the lowest Tmax of its
+    ``rows`` where that lies below the window, WINDOW_PAD of the new range under it (not below
+    0 K), and process the plotter again. Returns whether it did."""
+    low, high = plotter._ti.temp_range
+    tops = [row["tmax"] + 273.15 for row in rows if row["tmax"] is not None]
+    if not tops or min(tops) >= low:
+        return False
+    lowest = min(tops)
+    plotter._ti._temp_range_arg = [max(0.0, lowest - WINDOW_PAD * (high - lowest)
+                                       / (1.0 - WINDOW_PAD)), None]
+    plotter.process_data()
+    return True
+
+
 def check_locks(rows, locks):
-    """Raise EditStopped if a locked temperature of ``locks`` (``(name, 'solidus' or
-    'liquidus', degrees C)``) lies more than LOCK_TOLERANCE_K from its value in ``rows``."""
+    """Raise EditStopped if a locked Tmax of ``locks`` (``(name, 'tmax', degrees C)``) lies
+    more than LOCK_TOLERANCE_K from its value in ``rows``."""
     by_name = {row["name"]: row for row in rows}
+    problems = {}
     for name, which, value in locks:
         now = by_name.get(name, {}).get(which)
         if now is None:
-            raise EditStopped(f"Not applied: the update would leave {name}, whose "
-                              f"{FIELD_NAMES[which]} is locked, without a liquidus field.")
-        if abs(now - value) > LOCK_TOLERANCE_K:
-            raise EditStopped(f"Not applied: the update would move the locked "
-                              f"{FIELD_NAMES[which]} of {name} from {value:.0f} to {now:.0f} "
-                              f"\u00b0C.")
+            problems[name] = f"its locked {FIELD_SYMBOLS[which]} would be lost"
+        elif abs(now - value) > LOCK_TOLERANCE_K:
+            problems[name] = (f"its locked {FIELD_SYMBOLS[which]} would move from {value:.0f} "
+                              f"to {now:.0f} \u00b0C")
+    if problems:
+        raise EditStopped(problems)
 
 
 def ternary_model(components, binary_L_dict, fit_or_pred):
@@ -776,7 +894,7 @@ def uploaded_edits(model, entries):
 
 
 def build_ternary_plotter(components, binary_L_dict, fit_or_pred, progress=None, edits=None,
-                          units=UNITS[0], notes=None):
+                          units=UNITS[0], notes=None, colors=None):
     """A processed ``TLIPlotter`` over ``components``, ready for ``get_plot('tx')``.
 
     ``binary_L_dict`` is keyed by the cyclic edges of the sorted system
@@ -786,6 +904,8 @@ def build_ternary_plotter(components, binary_L_dict, fit_or_pred, progress=None,
     ``progress(stage, done, total)`` after the interpolation and then by
     ``TLIPlotter.process_data``. ``edits`` (see ``no_edits``) are applied to the store's phases
     first, and what ``apply_edits`` says of them in ``units`` is added to the list ``notes``.
+    ``colors`` (phase -> color) are the colors the phases had before, which they keep (see
+    ``TLIPlotter``'s ``keep_colors``).
     """
     ti = ternary_model(components, binary_L_dict, fit_or_pred)
     if edits and any(edits.values()):
@@ -798,6 +918,7 @@ def build_ternary_plotter(components, binary_L_dict, fit_or_pred, progress=None,
         edge_mape=True,
         pred_liquidus=True,
         edge_canvas=SUB_CANVAS,
+        keep_colors=colors,
     )
     print(f"Rendering {'-'.join(ti.components)}: hull_mode={ti.hull_mode}")
     ti.interpolate()
@@ -818,8 +939,8 @@ POLL_MS = 250
 # Fraction of a plot, from the press until it is on screen, done when each stage ends, in stage
 # order. The binary edge figures share the span from "model" to "edges" evenly, and the span
 # after "done" is the plots' transfer to the browser and their drawing.
-PROGRESS_AT = {"start": 0.00, "lookup": 0.00, "interpolate": 0.03, "model": 0.07,
-               "edges": 0.14, "hull": 0.31, "ternary": 0.60, "done": 0.60}
+PROGRESS_AT = {"start": 0.00, "lookup": 0.00, "interpolate": 0.04, "model": 0.09,
+               "edges": 0.19, "hull": 0.41, "ternary": 0.80, "done": 0.80}
 # Typical seconds of the step that ends with each stage.
 TYPICAL_S = {"lookup": 0.1, "interpolate": 0.2, "model": 0.2, "edges": 0.3,
              "hull": 0.8, "ternary": 1.4, "done": 0.1}
@@ -959,6 +1080,8 @@ def progress_bar(fraction, label, elapsed=None):
 #: until the paper has a page of its own.
 GITHUB_URL = "https://github.com/willwerj/gliquid_python"
 GROUP_URL = "https://whsunresearch.group"
+#: Where the Report an issue link addresses its email.
+ISSUE_EMAIL = "willwerj@umich.edu"
 PAPER_URL = GROUP_URL
 MAP_URL = "/gliquid/interactive-matrix.html"
 #: The binary map's thumbnail, an asset of this package directory.
@@ -977,7 +1100,6 @@ _GITHUB_MARK = (
     'c0-4.42-3.58-8-8-8z"/>')
 _DOCUMENT_ICON = ('<path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/>'
                   '<path d="M6 8.5h5M6 11h5"/>')
-_ARROW_ICON = '<path d="M6 18 18 6M9 6h9v9"/>'
 
 
 def svg_icon(body, size, **paint):
@@ -994,6 +1116,7 @@ def svg_icon(body, size, **paint):
 _DOWNLOAD_ICON = '<path d="M8 2.5v8M4.75 7.5 8 10.75 11.25 7.5M3 13.5h10"/>'
 _UPLOAD_ICON = '<path d="M8 10.75v-8M4.75 5.75 8 2.5l3.25 3.25M3 13.5h10"/>'
 _RESET_ICON = '<path d="M3 8a5 5 0 1 0 1.6-3.7M3 3v2.6h2.6"/>'
+_MAIL_ICON = '<rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="m2.5 4.5 5.5 4.25 5.5-4.25"/>'
 _INFO_ICON = '<circle cx="8" cy="8" r="6"/><path d="M8 7.25v3.5M8 5.1v.1"/>'
 _PLUS_ICON = '<path d="M8 3.5v9M3.5 8h9"/>'
 
@@ -1076,45 +1199,129 @@ def formula_text(text):
 
 
 def phase_label(label):
-    """A legend label, with ``<sub>`` markup, as Dash children."""
-    return [html.Sub(piece) if index % 2 else piece
+    """A legend label, with ``<sub>`` markup, as Dash children, its decimal subscripts rounded
+    to two places."""
+    return [html.Sub(re.sub(r"\d*\.\d{3,}", lambda m: f"{float(m.group()):.2f}", piece))
+            if index % 2 else piece
             for index, piece in enumerate(re.split(r"</?sub>", label)) if piece != ""]
+
+
+def formula_fractions(text):
+    """The mole fractions, by element, of the formula a phase name ``text`` spells, ignoring a
+    polymorph prefix ("\u03b3-") and a trailing structure ("(fcc)"); None where it spells none."""
+    text = re.sub(r"\s+\([^()]*\)$", "", text.strip())
+    text = re.sub(r"^[\u0391-\u03c9]-", "", text)
+    try:
+        composition = Composition(text)
+    except (ValueError, KeyError):
+        return None
+    return {str(el): composition.get_atomic_fraction(el) for el in composition.elements}
+
+
+def spells_composition(text, composition):
+    """Whether the phase name ``text`` spells the mole fractions ``composition`` (by element)
+    to 1e-4, with no subscript the phase list rounds."""
+    fractions = formula_fractions(text)
+    if fractions is None or re.search(r"\d*\.\d{3,}", text):
+        return False
+    return all(abs(fractions.get(el, 0.0) - composition.get(el, 0.0)) <= 1e-4
+               for el in {*fractions, *composition})
+
+
+def composition_note(text, composition):
+    """The hover line giving a phase's mole fractions ``composition`` (by element) where its
+    name ``text`` does not spell them out, else ""."""
+    if not composition or spells_composition(text, composition):
+        return ""
+    return "\nTrue composition: " + ", ".join(
+        f"{el} {f'{share:.5f}'.rstrip('0').rstrip('.')}" for el, share in composition.items()
+        if share > 0)
+
+
+#: The fill of the name box of a phase the legend gives no color.
+NAME_FILL = "#eeeeee"
+
+
+def name_ink(color):
+    """The text color, black or white, that contrasts more with the phase ``color``."""
+    return contrast_text(plotly.colors.convert_colors_to_same_type(color, "rgb")[0][0])
+
+
+def symbol_children(symbol):
+    """One of FIELD_SYMBOLS as Dash children: its letter in italics and what follows it as
+    its index, after a delta where it has one."""
+    delta = "\u0394" if symbol.startswith("\u0394") else ""
+    letter, index = symbol[len(delta)], symbol[len(delta) + 1:]
+    return [*([delta] if delta else []), html.I(letter), html.Sub(index)]
+
+
+_SYMBOL = re.compile("(" + "|".join(FIELD_SYMBOLS.values()) + ")")
+
+
+def message_children(text):
+    """``text`` as Dash children: each of FIELD_SYMBOLS set by symbol_children, the rest by
+    formula_text."""
+    return [child for index, part in enumerate(_SYMBOL.split(text))
+            for child in (symbol_children(part) if index % 2 else formula_text(part))]
 
 
 def error_message(text):
     """``text`` as a sidebar message in red."""
-    return html.Span(formula_text(text), className="gl-error")
+    return html.Span(message_children(text), className="gl-error")
+
+
+def error_lines(problems):
+    """The ``problems`` of an update (phase name -> why, ``""`` for the system as a whole) as
+    red sidebar lines, one each."""
+    return [html.Div(error_message(f"{name}: {why}" if name else why))
+            for name, why in problems.items()]
 
 
 def warning_message(text):
-    """``text`` as a sidebar warning, its formulas subscripted."""
-    return html.Span(formula_text(text), className="gl-warn")
+    """``text`` as a sidebar warning."""
+    return html.Span(message_children(text), className="gl-warn")
 
 
 def info_message(text):
     """``text`` as a sidebar message that is not an error."""
-    return html.Span(formula_text(text), className="gl-info")
+    return html.Span(message_children(text), className="gl-info")
 
 
-#: The column heads of the phase list and the placeholders of the add form, by field, and the
-#: hover text that spells each out.
-FIELD_HEADS = {"solidus": "Liq. min \u00b0C", "liquidus": "Liq. max \u00b0C"}
-ENERGY_HEADS = {units: {"enthalpy": "\u0394H " + labels["enthalpy"].replace("atom", "at"),
-                        "entropy": "\u0394S " + labels["entropy"].replace("atom", "at")}
-                for units, labels in UNIT_LABELS.items()}
-FIELD_TITLES = {"solidus": "Min liquidus temp: the lowest temperature of the phase's liquidus "
-                           "field, \u00b0C",
-                "liquidus": "Max liquidus temp: the highest temperature of the phase's liquidus "
-                            "field, \u00b0C",
+def value_text(value):
+    """A value shown_value gives, as a fixed box and a placeholder write it: at most four
+    decimals, "--" for none."""
+    return "--" if value is None else f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+#: The placeholders of the add form, by field, with the energies in each of UNITS.
+ADD_HINTS = {units: {"tmax": "Transition temperature (\u00b0C)",
+                     "enthalpy": f"Formation enthalpy ({labels['enthalpy'].replace('atom', 'at.')})"}
+             for units, labels in UNIT_LABELS.items()}
+#: The hover text of the column heads of the phase list.
+FIELD_TITLES = {"tmax": "Highest temperature the phase is stable at. The line under the box "
+                        "gives what it turns into above it",
                 "enthalpy": "Formation enthalpy, per atom or per mole of atoms",
                 "entropy": "Formation entropy, per atom or per mole of atoms, per K"}
 #: The values the add form takes: the entropy is set once the phase is drawn.
-ADD_FIELDS = ("solidus", "liquidus", "enthalpy")
+ADD_FIELDS = ("tmax", "enthalpy")
 
 
-def field_head(which, units):
-    """The column head of field ``which`` with the energies in ``units``."""
-    return {**FIELD_HEADS, **ENERGY_HEADS[units]}[which]
+def head_children(which, units):
+    """The column head of field ``which`` with the energies in ``units``, as Dash children."""
+    unit = "\u00b0C" if which == "tmax" else UNIT_LABELS[units][which].replace("atom", "at")
+    return html.Span([*symbol_children(FIELD_SYMBOLS[which]), " " + unit])
+
+
+def into_props(name, top, computed=False):
+    """``(children, title, className)`` of what the phase ``name`` (as shown) turns into above
+    its Tmax, ``top`` (see transition), as an arrow and "L + phase", marked ``computed`` where
+    the preview gives it."""
+    children = []
+    for index, product in enumerate((top or {}).get("products") or ()):
+        children += [" + " if index else html.Span(className='gl-ph-arrow'),
+                     *phase_label(product)]
+    return (children, transition_title(name, top) if top else "",
+            "gl-ph-into" + (" gl-ph-computed" if computed else ""))
 
 
 def phase_editor():
@@ -1133,114 +1340,184 @@ def phase_editor():
                                  inline=True, className='gl-seg', labelClassName='gl-seg-item',
                                  inputClassName='gl-seg-box')],
                  className='gl-ph-title'),
-        html.Div([html.Span(field_head(which, UNITS[0]), id=f'head-{which}',
+        html.Div([html.Span(head_children(which, UNITS[0]), id=f'head-{which}',
                             title=FIELD_TITLES[which]) for which in FIELDS],
                  className='gl-ph-head'),
         html.Div(id='phase-list'),
+        dcc.Store(id='phase-preview', data={}),
+        dcc.Store(id='phase-errors', data=[]),
         html.Div([
             html.Details([
                 html.Summary([line_icon(_PLUS_ICON), "Add"], className='gl-add-summary',
-                             title="Add a phase to the system shown"),
-                html.Div("Input composition and one or more known properties",
+                             title="Add a phase to the system"),
+                html.Div("Input composition and at least one property",
                          className='gl-ph-note'),
                 html.Div([amount(0), amount(1), amount(2)], className='gl-ph-amounts'),
                 html.Div(id='comp-preview', className='gl-ph-note'),
                 html.Div([dcc.Input(id=f'new-{which}', type='number', step='any',
-                                    placeholder=field_head(which, UNITS[0]),
+                                    placeholder=ADD_HINTS[UNITS[0]][which],
                                     className='gl-ph-input')
                           for which in ADD_FIELDS],
                          className='gl-ph-new'),
-                dcc.Store(id='new-auto'),
-                html.Div([dcc.Input(id='new-name', type='text', placeholder="Name (optional)",
-                                    maxLength=30, className='gl-ph-input gl-ph-wide'),
+                html.Div([html.Div([dcc.Input(id='new-name', type='text',
+                                              placeholder="Name (optional)",
+                                              maxLength=NAME_LIMIT, className='gl-ph-input'),
+                                    html.Span(f"0/{NAME_LIMIT}", id='name-count',
+                                              className='gl-ph-count')],
+                                   className='gl-ph-name-wrap'),
                           html.Button("Add", id='add-phase', n_clicks=0,
                                       className='gl-small-btn')],
                          className='gl-ph-add'),
-                html.Div(id='add-message', className='gl-ph-note'),
             ], className='gl-add'),
             html.Div([
                 html.Button(line_icon(_DOWNLOAD_ICON), id='download-entries', n_clicks=0,
                             className='gl-tool-btn',
-                            title="Download the phases as a JSON list of pymatgen entries"),
+                            title="Download the phases as a JSON list of DFT entries"),
                 dcc.Upload(html.Button(line_icon(_UPLOAD_ICON), className='gl-tool-btn',
-                                       title="Upload a JSON list of pymatgen entries for "
-                                             "the system shown"),
+                                       title="Load from DFT entry JSON"),
                            id='upload-entries', accept='.json,application/json',
                            multiple=False),
                 html.Button(line_icon(_RESET_ICON), id='reset-phases', n_clicks=0,
                             disabled=True, className='gl-tool-btn',
-                            title="Restore the phases of the store"),
+                            title="Reset all phases"),
             ], className='gl-foot-tools'),
         ], className='gl-foot'),
         dcc.Download(id='entries-file'),
-        html.Div(id='entries-message', className='gl-ph-note'),
     ], className='gl-editor gl-card')
 
 
 def phase_list_row(row, units, typed=None, locked=(), removed=False, restore=False,
-                   drawn=True):
-    """One row of the phase list: the phase's name with the button that removes the phase or
-    takes that back, and under it its FIELDS with the energies in ``units``, each with a
-    padlock once the phase is ``drawn`` and can be edited. A value the phase does not have
-    (a temperature of a phase with no liquidus field) shows as "--". An added or changed phase
-    is named in bold. ``typed`` holds typed values to keep, by field, ``locked`` the fields whose
-    padlock is closed. A phase the plots were drawn without (``restore``) shows its name
-    only."""
+                   drawn=True, reverted=None, revertible=False, ahead=None, bad=False):
+    """One row of the phase list: the phase's name on its legend color, its FIELDS with the
+    energies in ``units``, each with a padlock once the phase is ``drawn`` and can be edited,
+    and under them what it turns into above its Tmax and the button that removes the phase or
+    takes that back and, on a drawn phase that can be edited, the button that reverts it. The
+    revert button shows on a ``revertible`` phase (one whose drawn edit differs from the
+    baseline) and once a value is typed; ``reverted``, the phase's row at the baseline, marks a
+    phase to revert at the next update, whose values show fixed until then. A phase the plots
+    were drawn without that is being restored shows its row's values fixed. A value the phase
+    does not have shows as "--". An added or changed phase is named in bold. ``typed`` holds
+    typed values to keep, by field, ``locked`` the fields whose padlock is closed; once
+    FREE_FIELDS are typed or locked, the other field is greyed out with its padlock hidden. A
+    phase the plots were drawn without (``restore``) shows its name only. ``ahead``, the
+    phase's entry of the phase-preview store, shows the values it computes and what the phase
+    would turn into as show_preview does; ``bad`` marks a phase the last update refused."""
     name = row["name"]
+    label = row.get("label", name)
+    plain = re.sub(r"</?sub>", "", label)
+    editable = row["editable"] and reverted is None
+    shown = (reverted or row)["shown"][units]
 
     def padlocked(which):
         return row["shown"][units][which] is not None and drawn and row["editable"]
 
     closed = {which for which in locked if padlocked(which)} if not removed else set()
+    typed_here = {which for which, kept in (typed or {}).items()
+                  if which in FIELDS and kept not in (None, "")
+                  and (row["shown"][units][which] is None
+                       or float(kept) != row["shown"][units][which])}
+    fixed = closed | typed_here
+
+    def full(which):
+        return len(fixed) >= FREE_FIELDS and which not in fixed
 
     def changed(which, kept, value):
         blank = kept is None or kept == ""
         typed_here = not blank and (not drawn or value is None or float(kept) != value)
         return typed_here or which in row.get("changed", ())
 
+    solved = (ahead or {}).get('values') or {} if editable and not removed else {}
+
     def cell(which):
-        value = row["shown"][units][which]
-        if row["editable"] and not removed:
-            kept = (typed or {}).get(which, value)
+        value = shown[which]
+        if editable and not removed:
+            kept = None if which in solved else (typed or {}).get(which, value)
+            mark = (' gl-ph-computed' if which in solved
+                    else ' gl-ph-changed' if changed(which, kept, value) else '')
             field = dcc.Input(id={'type': 'ph-field', 'name': name, 'which': which},
                               type='number', step='any', value=kept,
-                              className='gl-ph-input' + (
-                                  ' gl-ph-changed' if changed(which, kept, value) else ''),
-                              disabled=which in closed or len(closed) >= FREE_FIELDS,
-                              placeholder="--" if value is None else None)
+                              className='gl-ph-input' + mark + (' gl-ph-bad' if bad else ''),
+                              disabled=which in closed or full(which),
+                              placeholder=value_text(shown_value(which, solved[which], units))
+                              if which in solved else "--" if value is None else None)
         else:
-            text = "--" if value is None else f"{value:.4f}".rstrip("0").rstrip(".")
-            field = html.Span(text, className='gl-ph-input gl-ph-fixed')
-        if value is None or removed or not drawn or not row["editable"]:
-            return [field, html.Span()]
-        lock = dcc.Checklist(id={'type': 'ph-lock', 'name': name, 'which': which},
-                             options=[{'label': '', 'value': 'on',
-                                       'title': f"Hold the {FIELD_NAMES[which]} of {name}"}],
-                             value=['on'] if which in locked else [],
-                             className='gl-ph-lock' + (
-                                 ' gl-ph-off' if which not in closed
-                                 and len(closed) >= FREE_FIELDS else ''),
-                             inputClassName='gl-ph-lock-box')
-        return [field, lock]
+            field = html.Span(value_text(value), className='gl-ph-input gl-ph-fixed')
+        if value is None or removed or not drawn or not editable:
+            parts = [field, html.Span()]
+        else:
+            lock = dcc.Checklist(id={'type': 'ph-lock', 'name': name, 'which': which},
+                                 options=[{'label': '', 'value': 'on'}],
+                                 value=['on'] if which in locked else [],
+                                 className='gl-ph-lock' + (
+                                     ' gl-ph-off' if which not in closed and full(which) else ''),
+                                 inputClassName='gl-ph-lock-box')
+            parts = [field, html.Span(lock, title=f"Lock the {FIELD_NAMES[which]} of {name}",
+                                      className='gl-ph-lock-cell')]
+        return parts
 
+    buttons = []
+    if row["editable"] and drawn and not removed and not restore:
+        buttons.append(html.Button(
+            "\u21ba", id={'type': 'ph-revert', 'name': name}, n_clicks=0,
+            className='gl-icon-btn gl-restore' + (
+                ' gl-on' if reverted is not None
+                else '' if revertible or typed_here else ' gl-ph-off'),
+            title=(f"Keep the edits of {plain}" if reverted is not None
+                   else f"Revert {plain} to its original values" if row["kind"] != "added"
+                   or revertible else f"Revert the values typed for {plain}")))
     if row["editable"] or restore:
-        button = html.Button("\u21ba" if removed else "\u00d7",
-                             id={'type': 'ph-remove', 'name': name}, n_clicks=0,
-                             className='gl-icon-btn' + (' gl-restore' if removed else ''),
-                             title="Keep this phase" if removed else "Remove this phase")
-    else:
-        button = html.Span()
-    label = row.get("label", name)
-    plain = re.sub(r"</?sub>", "", label)
-    tag = [html.Span(row["tag"], className='gl-ph-tag')] if row.get("tag") else []
-    dot = html.Span(className='gl-ph-dot', style={'backgroundColor': row.get("color") or 'transparent'})
-    head = html.Div([dot, html.Span([*phase_label(label), *tag], title=plain, className='gl-ph-name' + (
-                         '' if row["kind"] == "default" else ' gl-ph-changed')), button],
-                    className='gl-ph-row-head')
-    values = [] if restore else [html.Div([part for which in FIELDS for part in cell(which)],
-                                          className='gl-ph-values')]
-    return html.Div([head, *values],
-                    className='gl-ph-row' + (' gl-ph-removed' if removed else ''))
+        buttons.append(html.Button(
+            "\u21ba" if removed else "\u00d7", id={'type': 'ph-remove', 'name': name},
+            n_clicks=0, className='gl-icon-btn' + (' gl-restore' if removed else ''),
+            title=f"Revert the removal of {plain}" if removed else "Remove this phase"))
+    fill = row.get("color") or NAME_FILL
+    parts = [html.Span(html.Span(phase_label(label), className='gl-ph-name' + (
+                           '' if row["kind"] == "default" or reverted is not None
+                           else ' gl-ph-changed')),
+                       title=plain + (row.get("tag") or "")
+                       + composition_note(plain, row.get("composition")),
+                       className='gl-ph-name-box',
+                       style={'backgroundColor': fill, 'color': name_ink(fill)})]
+    if not (restore and removed):
+        into, into_title, into_class = (
+            into_props(plain, ahead['top'], computed=True) if solved
+            else into_props(plain, (reverted or row).get("top")))
+        parts += [*[part for which in FIELDS for part in cell(which)],
+                  html.Span(into, id={'type': 'ph-into', 'name': name}, title=into_title,
+                            className=into_class)]
+    parts.append(html.Span(buttons, className='gl-ph-buttons' + (
+        ' gl-ph-buttons-top' if restore and removed else '')))
+    return html.Div(html.Div(parts, className='gl-ph-values'),
+                    className='gl-ph-row' + (' gl-ph-removed' if removed else '')
+                    + (' gl-ph-reverted' if reverted is not None else ''))
+
+
+def report_issue():
+    """The Report an issue button and the panel it opens: ISSUE_EMAIL to copy, and links that
+    open an email to it, its subject and body naming the system on screen, in Gmail, Outlook
+    on the web or the browser's email app."""
+    def link(label, which):
+        return html.A(label, id=f'report-{which}', href=f"mailto:{ISSUE_EMAIL}", target='_blank',
+                      rel='noopener', className='gl-small-btn gl-report-link')
+
+    return html.Div([
+        html.Button([line_icon(_MAIL_ICON, color="#3c424d"), "Report an issue"],
+                    id='report-issue', n_clicks=0, className='gl-pill',
+                    title=f"Write to {ISSUE_EMAIL} about a problem with this page"),
+        html.Div([
+            html.Div([html.Span("Report an issue", className='gl-report-title'),
+                      html.Button("\u00d7", id='report-close', n_clicks=0,
+                                  className='gl-icon-btn gl-report-close', title="Close")],
+                     className='gl-report-head'),
+            html.Div(["Email ", html.Span(ISSUE_EMAIL, className='gl-report-address'),
+                      " with what you did, what you expected and what happened."]),
+            html.Div([link("Gmail", 'gmail'), link("Outlook", 'outlook'),
+                      link("Email app", 'mailto'),
+                      html.Button("Copy address", id='report-copy', n_clicks=0,
+                                  className='gl-small-btn')],
+                     className='gl-report-actions'),
+        ], id='report-panel', className='gl-report-panel', hidden=True),
+    ], className='gl-report')
 
 
 def ternary_figure(plotter):
@@ -1266,14 +1543,13 @@ def ternary_figure(plotter):
     return ternary_plot
 
 
-def render_landing_figures(system=None):
+def render_landing_figures(system):
     """Render ``system`` from the store: the figures shown before any user input.
 
     Called once per app, at startup, and returns the ternary figure, the binary figures, the
-    phase editor's rows, the system's entries as a list and its processed model: blank figures,
-    no rows, no entries and no model if the render fails.
+    phase editor's rows and the system's entries as a list: blank figures, no rows and no
+    entries if the render fails.
     """
-    system = system or LANDING_SYSTEM
     # Outside the try below: an uncovered landing system stops the boot.
     require_landing_system_covered(system)
 
@@ -1290,12 +1566,12 @@ def render_landing_figures(system=None):
 
         print(f"Successfully generated landing system: {plotter.sys_name}")
         return (ternary_plot, binary_plots, phase_rows(plotter, ternary_plot, no_edits()),
-                plotter._ti.export_entries(), plotter._ti)
+                plotter._ti.export_entries())
 
     except Exception as e:
         print(f"Error generating landing system: {e}")
         traceback.print_exc()
-        return go.Figure(), [go.Figure(), go.Figure(), go.Figure()], [], [], None
+        return go.Figure(), [go.Figure(), go.Figure(), go.Figure()], [], []
 
 
 # --- per-tab sessions ---------------------------------------------------------------
@@ -1420,8 +1696,8 @@ def create_gliqtern_app(requests_pathname_prefix):
     app.title = PAGE_TITLE
 
     # The landing figures, rendered once at startup.
-    (LANDING_TERNARY, LANDING_BINARIES, LANDING_ROWS, LANDING_ENTRIES,
-     LANDING_MODEL) = render_landing_figures(LANDING_SYSTEM)
+    LANDING_TERNARY, LANDING_BINARIES, LANDING_ROWS, LANDING_ENTRIES = render_landing_figures(
+        LANDING_SYSTEM)
     LANDING_COMPONENTS = parse_system(LANDING_SYSTEM)
     # The landing system's elements as written, the order of the add-phase boxes.
     LANDING_ORDER = [part.strip() for part in LANDING_SYSTEM.split("-")]
@@ -1436,8 +1712,15 @@ def create_gliqtern_app(requests_pathname_prefix):
             'binary_plots': LANDING_BINARIES,
             'plot_ready': True,
             'error_occurred': False,
-            'error_message': "",
+            # Why the last generation failed (see EditStopped).
+            'problems': {},
             'system': "-".join(LANDING_COMPONENTS),
+            # The edits Reset and a revert return to: the last uploaded list of the system on
+            # screen, with its rows once drawn, or None for the store's phases.
+            'baseline': None,
+            # Models the phase preview reuses (see preview_phases), and the lock it holds.
+            'preview_models': OrderedDict(),
+            'preview_lock': threading.Lock(),
             # Bumped by each generation started; a generation saves its result only while current.
             'generation': 0,
             'started_at': 0.0,
@@ -1458,17 +1741,19 @@ def create_gliqtern_app(requests_pathname_prefix):
             'order': LANDING_ORDER,
             # The entries of the system as plotted, the list Download entries saves.
             'entries': LANDING_ENTRIES,
-            # The processed model the plots were drawn from, which the add form solves against.
-            'model': LANDING_MODEL,
             # The phase edits the plots were drawn with (see no_edits).
             'edits': no_edits(),
             # The system's plots and rows without edits, restored by Reset and by a reload.
             'default': {'ternary_plot': LANDING_TERNARY, 'binary_plots': LANDING_BINARIES,
                         'rows': LANDING_ROWS, 'entries': LANDING_ENTRIES,
-                        'model': LANDING_MODEL, 'system': "-".join(LANDING_COMPONENTS)},
+                        'system': "-".join(LANDING_COMPONENTS)},
         }
 
     sessions = SessionStore(new_session, MAX_SESSIONS, SESSION_TTL)
+    # The preview's models while a tab has no session yet.
+    landing_cache = {'preview_models': OrderedDict(), 'preview_lock': threading.Lock()}
+    # The latest preview each tab asked for, by session id: an answer to an earlier one is dropped.
+    preview_tickets = {}
     # Serializes a generation's end: its result, a cancel, a timeout.
     generation_lock = threading.Lock()
 
@@ -1479,8 +1764,8 @@ def create_gliqtern_app(requests_pathname_prefix):
             if session['plot_ready'] or generation not in (None, session['generation']):
                 return False
             session['generation'] += 1
-            session.update(plot_ready=True, error_occurred=bool(message), error_message=message,
-                           notice=notice)
+            session.update(plot_ready=True, error_occurred=bool(message),
+                           problems={"": message} if message else {}, notice=notice)
             job = session['job']
         if job is not None:
             job.cancel()
@@ -1525,9 +1810,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                     border-radius: 4px;
                     cursor: pointer;
                 }
-                .gl-btn:hover { background-color: #e6e6e6; border-color: #adadad; }
                 .gl-btn:disabled { opacity: 0.65; cursor: not-allowed; }
-                .gl-btn:disabled:hover { background-color: #fff; border-color: #ccc; }
 
                 .gl-progress {
                     width: 100%;
@@ -1546,7 +1829,6 @@ def create_gliqtern_app(requests_pathname_prefix):
                 }
                 .gl-progress-label {
                     margin-top: 4px;
-                    font-family: Helvetica, Arial, sans-serif;
                     font-size: 12px;
                     color: #18191d;
                 }
@@ -1559,14 +1841,12 @@ def create_gliqtern_app(requests_pathname_prefix):
                     margin-top: 12px;
                     padding-top: 8px;
                     border-top: 1px solid #dddddd;
-                    font-family: Helvetica, Arial, sans-serif;
                     font-size: 12px;
                     color: #18191d;
                 }
                 .gl-ph-title {
                     display: flex;
                     align-items: center;
-                    justify-content: space-between;
                     font-size: 14px;
                 }
                 .gl-ph-note { margin-top: 4px; color: #555555; line-height: 1.3; }
@@ -1584,66 +1864,118 @@ def create_gliqtern_app(requests_pathname_prefix):
                     border: 1px solid #cccccc;
                     border-radius: 3px;
                     background: #ffffff;
-                    font-family: Helvetica, Arial, sans-serif;
                     font-size: 12px;
                     color: #18191d;
                     -moz-appearance: textfield;
                 }
                 .gl-ph-input::-webkit-outer-spin-button,
-                .gl-ph-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-                .gl-ph-wide { flex: 1 1 0; }
+                .gl-ph-input::-webkit-inner-spin-button {
+                    -webkit-appearance: none; display: none; margin: 0; }
+                .gl-ph-name-wrap { position: relative; flex: 1 1 0; min-width: 0; }
+                .gl-ph-name-wrap .gl-ph-input { padding-right: 34px; }
+                .gl-ph-count {
+                    position: absolute;
+                    top: 0;
+                    right: 5px;
+                    line-height: 22px;
+                    font-size: 10.5px;
+                    color: #8a8f98;
+                    pointer-events: none;
+                }
                 .gl-ph-fixed {
                     display: flex;
                     align-items: center;
                     background: #eeeeee;
                     color: #777777;
                 }
-                .gl-ph-files { display: flex; column-gap: 6px; margin-top: 6px; }
                 .gl-ph-new {
                     display: grid;
-                    grid-template-columns: repeat(4, minmax(0, 1fr));
-                    column-gap: 4px;
+                    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                    column-gap: 3px;
                     margin-top: 6px;
                 }
-                .gl-ph-new .gl-ph-input::placeholder { font-size: 10px; }
+                .gl-ph-new .gl-ph-input { padding: 1px 3px; text-overflow: ellipsis; }
                 .gl-ph-values .gl-ph-input::placeholder { color: #555555; opacity: 1; }
-                .gl-ph-row { margin-top: 6px; }
-                .gl-ph-row-head {
-                    display: grid;
-                    grid-template-columns: 10px minmax(0, 1fr) 20px;
-                    column-gap: 4px;
-                    align-items: center;
-                }
+                #phase-list > .gl-ph-row { padding: 3px; border-radius: 5px; }
+                #phase-list > .gl-ph-row:nth-child(odd) { background: #f1f2f4; }
                 .gl-ph-values, .gl-ph-head {
                     display: grid;
-                    grid-template-columns: repeat(4, minmax(0, 1fr) 16px);
-                    column-gap: 3px;
+                    grid-template-columns: 70px repeat(3, minmax(0, 1fr) 16px);
                     align-items: center;
-                    margin-top: 2px;
                 }
-                .gl-ph-head { margin-top: 10px; color: #555555; font-size: 10.5px; }
-                .gl-ph-head span { display: flex; justify-content: center; white-space: nowrap; }
-                .gl-ph-head span:nth-child(1) { grid-column: 1; }
-                .gl-ph-head span:nth-child(2) { grid-column: 3; }
-                .gl-ph-head span:nth-child(3) { grid-column: 5; }
-                .gl-ph-head span:nth-child(4) { grid-column: 7; }
-                .gl-ph-lock.gl-ph-off { visibility: hidden; }
-                .gl-ph-unit-row {
+                .gl-ph-head { padding: 0 3px; }
+                #phase-list, .gl-ph-head { margin-left: -5px; margin-right: -5px; }
+                .gl-ph-name-box {
+                    grid-row: 1;
+                    grid-column: 1;
+                    margin-right: 2px;
                     display: flex;
-                    align-items: center;
-                    column-gap: 8px;
-                    margin-top: 10px;
-                    color: #555555;
+                    justify-content: center;
+                    box-sizing: border-box;
+                    height: 22px;
+                    min-width: 0;
+                    padding: 0 3px;
+                    border: 1px solid #cccccc;
+                    border-radius: 3px;
+                    cursor: default;
                 }
-                .gl-ph-units label { margin: 0 8px 0 0; color: #18191d; }
-                .gl-ph-unit-box { margin: 0 3px 0 0; vertical-align: -1px; }
-                .gl-ph-head { margin-top: 4px; }
-                .gl-plot-tools { display: flex; justify-content: center; margin-top: 4px; }
-                .gl-ph-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                .gl-ph-removed .gl-ph-name { text-decoration: line-through; color: #999999; }
-                .gl-ph-tag { font-weight: 400; color: #555555; }
-                .gl-ph-dot { width: 10px; height: 10px; border-radius: 50%; }
-                .gl-ph-removed .gl-ph-dot { opacity: 0.4; }
+                .gl-ph-name {
+                    display: block;
+                    min-width: 0;
+                    max-width: 100%;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    line-height: 20px;
+                }
+                .gl-ph-name sub { line-height: 0; }
+                .gl-ph-buttons {
+                    grid-row: 2;
+                    grid-column: 6 / 8;
+                    justify-self: end;
+                    display: flex;
+                    column-gap: 2px;
+                }
+                .gl-ph-buttons-top { grid-row: 1; }
+                .gl-ph-buttons .gl-icon-btn { width: 16px; height: 15px; font-size: 16px; line-height: 15px; }
+                .gl-ph-buttons .gl-icon-btn.gl-restore { font-size: 14px; }
+                .gl-ph-head { color: #555555; font-size: 10.5px; }
+                .gl-ph-head > span { display: flex; justify-content: center; white-space: nowrap; }
+                .gl-ph-head > span:nth-child(1) { grid-column: 2; }
+                .gl-ph-head > span:nth-child(2) { grid-column: 4; }
+                .gl-ph-head > span:nth-child(3) { grid-column: 6; }
+                .gl-ph-into {
+                    grid-row: 2;
+                    grid-column: 2 / 6;
+                    min-width: 0;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    padding-left: 5px;
+                    font-size: 10.5px;
+                    line-height: 15px;
+                    color: #555555;
+                    cursor: default;
+                }
+                .gl-ph-arrow {
+                    display: inline-block;
+                    width: 10px;
+                    height: 11px;
+                    margin-right: 3px;
+                    vertical-align: baseline;
+                    background-color: currentColor;
+                    -webkit-mask: center / 10px 11px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 11' fill='none' stroke='black' stroke-width='1.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 1v6.7h7M6.3 5.5l2.2 2.2-2.2 2.2'/%3E%3C/svg%3E");
+                    mask: center / 10px 11px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 11' fill='none' stroke='black' stroke-width='1.1' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 1v6.7h7M6.3 5.5l2.2 2.2-2.2 2.2'/%3E%3C/svg%3E");
+                }
+                .gl-ph-into.gl-ph-computed { color: #1f4e79; font-style: italic; }
+                .gl-ph-removed .gl-ph-into { color: #999999; }
+                .gl-ph-lock.gl-ph-off { visibility: hidden; }
+                .gl-ph-lock-cell { display: flex; align-items: center; }
+                #phase-list > .gl-ph-row:has(.gl-ph-bad) { background: #fdeaea; }
+                .gl-ph-values .gl-ph-computed::placeholder { color: #1f4e79; font-style: italic; }
+                .gl-plot-tools { display: flex; justify-content: center; }
+                .gl-ph-removed .gl-ph-name { text-decoration: line-through; }
+                .gl-ph-removed .gl-ph-name-box { opacity: 0.45; }
                 .gl-ph-changed, .gl-ph-row:has(.gl-ph-changed) .gl-ph-name { font-weight: 700; }
                 .gl-ph-input:disabled { background: #eeeeee; color: #777777; cursor: not-allowed; }
                 .gl-ph-lock, .gl-ph-lock label { display: flex; align-items: center; margin: 0; }
@@ -1671,7 +2003,6 @@ def create_gliqtern_app(requests_pathname_prefix):
                     border-radius: 3px;
                     background: #ffffff;
                     color: #18191d;
-                    font-family: Helvetica, Arial, sans-serif;
                     font-size: 12px;
                     cursor: pointer;
                 }
@@ -1692,6 +2023,11 @@ def create_gliqtern_app(requests_pathname_prefix):
                 .gl-icon-btn:hover { color: #7a0000; }
                 .gl-icon-btn.gl-restore { color: #1f4e79; font-size: 18px; }
                 .gl-icon-btn.gl-restore:hover { color: #0f2940; }
+                .gl-icon-btn.gl-ph-off { visibility: hidden; }
+                .gl-icon-btn.gl-report-close { color: #5b6270; }
+                .gl-icon-btn.gl-report-close:hover { color: #18191d; }
+                .gl-icon-btn.gl-on { background: #dce8f3; border-radius: 4px; }
+                .gl-ph-reverted .gl-ph-fixed { font-style: italic; }
                 .gl-icon-btn:focus-visible { outline: 2px solid #3276b1; outline-offset: 1px; }
                 .gl-small-btn:hover { background: #e6e6e6; }
                 .gl-small-btn:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
@@ -1701,7 +2037,6 @@ def create_gliqtern_app(requests_pathname_prefix):
                     align-items: center;
                     justify-content: space-between;
                     box-sizing: border-box;
-                    font-family: Helvetica, Arial, sans-serif;
                     font-size: 13px;
                     color: #18191d;
                 }
@@ -1837,19 +2172,84 @@ def create_gliqtern_app(requests_pathname_prefix):
                 button.gl-pill { cursor: pointer; }
                 button.gl-pill:hover { background: #e9ecf0; border-color: #c9ced6; }
                 button.gl-pill:focus-visible { outline: 2px solid #3276b1; outline-offset: 1px; }
+                .gl-report { position: relative; }
+                .gl-report-panel {
+                    position: absolute;
+                    right: 0;
+                    bottom: 36px;
+                    z-index: 20;
+                    box-sizing: border-box;
+                    width: 300px;
+                    padding: 10px 12px 12px;
+                    border: 1px solid #dfe2e7;
+                    border-radius: 8px;
+                    background: #ffffff;
+                    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+                    font-size: 12.5px;
+                    line-height: 1.45;
+                    color: #18191d;
+                }
+                .gl-report-head {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: 4px;
+                }
+                .gl-report-title { font-weight: 600; }
+                .gl-report-address { font-weight: 600; user-select: all; }
+                .gl-report-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+                .gl-report-link {
+                    display: inline-flex;
+                    align-items: center;
+                    text-decoration: none;
+                }
                 .gl-ph-head { margin-top: 10px; }
-                .gl-ph-values, .gl-ph-head {
-                    grid-template-columns: repeat(4, minmax(0, 1fr) 16px);
-                    column-gap: 2px;
-                }                .gl-ph-values .gl-ph-input { padding: 1px 3px; }
-                .gl-ph-new { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-                .gl-ph-new .gl-ph-input::placeholder { font-size: 11px; }
-                .gl-ph-new .gl-ph-input:disabled { font-weight: 700; }
+                .gl-ph-values, .gl-ph-head { column-gap: 2px; }
+                .gl-ph-values .gl-ph-input { padding: 1px 2px; }
+                .gl-ph-new .gl-ph-input::placeholder { font-size: 10px; }
                 [id^="binary-plot"] g.annotation:has(rect.bg[style*="fill-opacity: 0;"]) text {
                     letter-spacing: 0.5px; }
             </style>
             <script>
+                // Whether the box `item` of the phase list (its id and value) holds a value that is
+                // not the one its phase's `row` shows in `units`; a box without a row holds its own.
+                function glTyped(row, item, units) {
+                    var value = item.value;
+                    if (value === null || value === undefined || value === '' || Number.isNaN(value)) {
+                        return false;
+                    }
+                    return !row || row.shown[units][item.id.which] === null
+                        || Number(value) !== row.shown[units][item.id.which];
+                }
+                // Shrinks each phase name in the phase list until it fits its box, to 7.5 px.
+                function fitPhaseNames() {
+                    document.querySelectorAll('#phase-list .gl-ph-name').forEach(function(name) {
+                        name.style.fontSize = '';
+                        var size = parseFloat(getComputedStyle(name).fontSize);
+                        while (name.scrollWidth > name.clientWidth && size > 7.5) {
+                            size -= 0.5;
+                            name.style.fontSize = size + 'px';
+                        }
+                    });
+                }
                 document.addEventListener('DOMContentLoaded', function() {
+                    var list = null, queued = false;
+                    function queueFit() {
+                        if (queued) return;
+                        queued = true;
+                        requestAnimationFrame(function() { queued = false; fitPhaseNames(); });
+                    }
+                    var listObserver = new MutationObserver(queueFit);
+                    new MutationObserver(function() {
+                        var now = document.getElementById('phase-list');
+                        if (now && now !== list) {
+                            list = now;
+                            listObserver.disconnect();
+                            listObserver.observe(list, {childList: true, subtree: true,
+                                                        characterData: true});
+                            queueFit();
+                        }
+                    }).observe(document.body, {childList: true, subtree: true});
                     document.addEventListener('keydown', function(event) {
                         if (event.key === 'Enter') {
                             // Find the generate button and click it
@@ -1892,31 +2292,36 @@ def create_gliqtern_app(requests_pathname_prefix):
             report("lookup")
 
             notes = []
+            system = "-".join(components)
+            had, default = session.get('colors') or {}, session.get('default') or {}
+            kept = (had.get('map') if had.get('system') == system
+                    else {row["name"]: row["color"] for row in default['rows'] if row["color"]}
+                    if default.get('system') == system else None)
             plotter = build_ternary_plotter(components, binary_L_dict, fitorpred,
                                             progress=report, edits=edits, units=units,
-                                            notes=notes)
+                                            notes=notes, colors=kept)
             ternary_plot = ternary_figure(plotter)
-            default = session.get('default') or {}
-            rows = phase_rows(plotter, ternary_plot, edits,
-                              default['rows'] if default.get('system') == "-".join(components)
-                              else ())
-            if any(edits.values()) and all(row["liquidus"] is None for row in rows):
-                raise EditStopped("Not applied: the phase fields cannot be drawn with these "
-                                  "temperatures. Try lower liquidus temps.")
+            original = default['rows'] if default.get('system') == system else ()
+            rows = phase_rows(plotter, ternary_plot, edits, original)
+            if widen_window(plotter, rows):
+                ternary_plot = ternary_figure(plotter)
+                rows = phase_rows(plotter, ternary_plot, edits, original)
+            if any(edits.values()) and not plotter.liquidus_ranges():
+                raise EditStopped({"": "The phase fields cannot be drawn with these values."})
             check_locks(rows, locks)
-            shown = session['rows'] if session.get('system') == "-".join(components) else ()
-            had = {row["name"] for row in shown if row["liquidus"] is not None}
-            lost = [row["name"] for row in rows if row["liquidus"] is None and row["name"] in had]
+            shown = session['rows'] if session.get('system') == system else ()
+            had = {row["name"] for row in shown if row["tmax"] is not None}
+            lost = [row["name"] for row in rows if row["tmax"] is None and row["name"] in had]
             if lost:
-                notes.insert(0, f"{', '.join(lost)} no longer "
-                                f"{'has' if len(lost) == 1 else 'have'} a liquidus field.")
-            asked = {**edits["targets"], **{p["name"]: p["target"] for p in edits["added"]}}
+                notes.insert(0, f"{', '.join(lost)} {'is' if len(lost) == 1 else 'are'} no "
+                                f"longer stable at any temperature.")
+            asked = edit_targets(edits)
             unmet = [row["name"] for row in rows
-                     if row["liquidus"] is None and row["name"] not in lost
-                     and {"solidus", "liquidus"} & set(asked.get(row["name"], ()))]
+                     if "tmax" in asked.get(row["name"], {}) and row["name"] not in lost
+                     and row["tmax"] != asked[row["name"]]["tmax"]]
             if unmet:
-                notes.append(f"{', '.join(unmet)} {'has' if len(unmet) == 1 else 'have'} no "
-                             f"liquidus field: the liquidus temps asked for are not met.")
+                notes.append(f"{', '.join(unmet)} {'does' if len(unmet) == 1 else 'do'} not "
+                             f"reach the Ttrans asked for.")
             report("ternary")
 
             assert len(plotter.bin_fig_list) == 3, \
@@ -1927,33 +2332,40 @@ def create_gliqtern_app(requests_pathname_prefix):
             result = {
                 'ternary_plot': ternary_plot,
                 'binary_plots': binary_plots,
-                'system': "-".join(components),
+                'system': system,
                 'error_occurred': False,
                 'notice': warning_message(" ".join(notes)) if notes else "",
                 'rows': rows,
                 'entries': plotter._ti.export_entries(),
-                'model': plotter._ti,
                 'order': order,
                 'edits': edits,
+                'colors': {'system': system,
+                           'map': {**{phase: color for phase, color in (kept or {}).items()
+                                      if phase in edits["removed"]},
+                                   **{phase: color for phase, color in plotter.color_map.items()
+                                      if phase != "L"}}},
             }
             if not any(edits.values()):
                 result['default'] = {key: result[key] for key in
-                                     ('ternary_plot', 'binary_plots', 'rows', 'entries', 'model',
-                                      'system')}
+                                     ('ternary_plot', 'binary_plots', 'rows', 'entries', 'system')}
         except EditStopped as stopped:
             # The message holds characters a console's code page may lack.
             print(ascii(f"Phase edit stopped: {stopped}"))
-            result = {'error_occurred': True, 'error_message': str(stopped)}
+            result = {'error_occurred': True, 'problems': stopped.problems}
         except Exception as e:
             print(f"Error occurred during plot generation: {str(e)}")
             traceback.print_exc()
             result = {'error_occurred': True,
-                      'error_message': "Invalid or unsupported system, please try again."}
+                      'problems': {"": "Invalid or unsupported system, please try again."}}
 
         # A generation that was cancelled, timed out or was superseded leaves the session alone.
         with generation_lock:
             if session['generation'] == generation:
                 session.update(result, plot_ready=True)
+                base = session.get('baseline')
+                if (base and base['system'] == result.get('system')
+                        and base['edits'] == result.get('edits')):
+                    base['rows'] = result['rows']
 
     # app.layout must stay a function: a static layout gives every visitor the same session id.
     def serve_layout():
@@ -1983,6 +2395,9 @@ def create_gliqtern_app(requests_pathname_prefix):
                                      className='gl-system-row'),
                             html.Div(id='loading-message', children=IDLE_MESSAGE,
                                      className='gl-status'),
+                            # Every other message of the sidebar shows here too.
+                            *[html.Div(id=spot, className='gl-status')
+                              for spot in ('add-message', 'entries-message')],
                         ], className='gl-card'),
                         phase_editor(),
                         html.Div("About", className='gl-section gl-after-cards'),
@@ -2032,6 +2447,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                                                    className='gl-pill',
                                                    title="Save this plot as an interactive "
                                                          "HTML file"),
+                                       report_issue(),
                                        dcc.Download(id='html-file')],
                                       className='gl-plot-tools')],
                             style={'flex': 'none', 'width': f'{TERNARY_WIDTH}px',
@@ -2070,6 +2486,9 @@ def create_gliqtern_app(requests_pathname_prefix):
                 dcc.Store(id='ternary-figure'),
                 # Outputs of the busy-title and ternary-plot clientside callbacks
                 dcc.Store(id='title-sink'),
+                dcc.Store(id='box-sink'),
+                # The unrounded values of the boxes a unit switch converted, by phase and field
+                dcc.Store(id='typed-exact', data={}),
                 dcc.Store(id='ternary-js-sink'),
             ],
             # The sidebar and the plot area side by side, scrolled sideways as one.
@@ -2084,22 +2503,86 @@ def create_gliqtern_app(requests_pathname_prefix):
         with generation_lock:
             session['generation'] += 1
             session.update(session['default'], edits=no_edits(), plot_ready=True,
-                           error_occurred=False, error_message="", notice="")
+                           error_occurred=False, problems={}, notice="")
             return session['generation']
 
-    def requested_edits(applied, rows, pending, typed, locked, units):
-        """``(edits, problem)``: the phase edits an update asks for, from the ``applied`` ones,
-        the ``pending`` additions, removals and restorals, the values ``typed`` into the
-        ``rows`` on screen (name -> field -> value, the energies in ``units``) and the fields
-        ``locked`` (name -> fields).
+    def baseline_edits(session):
+        """The edits (see no_edits) Reset and a revert return the session's system to."""
+        base = (session or {}).get('baseline')
+        return (base['edits'] if base and base['system'] == (session or {}).get('system')
+                else no_edits())
+
+    def baseline_values(session):
+        """The FIELDS values (degrees C, eV/atom, J/mol-atom/K) and the ``top`` (see
+        transition) of each phase of the session's system at its baseline, by name: the store's
+        rows, or an uploaded list's rows once drawn and, until then, its enthalpies and
+        entropies with Tmax and top None."""
+        default = (session or {}).get('default') or {}
+        system = (session or {}).get('system', LANDING_SHOWN)
+        store = (default.get('rows') if default.get('system') == system else None) or (
+            LANDING_ROWS if session is None else ())
+
+        def known(rows):
+            return {row["name"]: {**{which: row[which] for which in FIELDS}, "top": row["top"]}
+                    for row in rows}
+
+        out = known(store)
+        base = (session or {}).get('baseline')
+        if not base or base['system'] != system:
+            return out
+        if base.get('rows'):
+            return known(base['rows'])
+        out = {name: {**values, "tmax": None, "top": None} for name, values in out.items()}
+        for name, target in edit_targets(base['edits']).items():
+            out[name] = {"tmax": None, "enthalpy": target.get("enthalpy"),
+                         "entropy": target.get("entropy"), "top": None}
+        return out
+
+    def baseline_state(session):
+        """``(revertible, at_baseline)``: the phases whose drawn edit differs from the
+        baseline's and can return to it, and whether the drawn edits are the baseline's."""
+        applied, base = session['edits'], baseline_edits(session)
+        drawn, at = edit_targets(applied), edit_targets(base)
+        revertible = [name for name, target in drawn.items() if target != at.get(name)
+                      and (name in at or name in applied["targets"])]
+        return revertible, drawn == at and sorted(applied["removed"]) == sorted(base["removed"])
+
+    def requested_edits(applied, rows, pending, typed, locked, units, baseline, exact):
+        """``(edits, problems, clamped)``: the phase edits an update asks for, from the
+        ``applied`` ones, the ``pending`` additions, removals and restorals, the values
+        ``typed`` into the ``rows`` on screen (name -> field -> value, the energies in
+        ``units``) and the fields ``locked`` (name -> fields). ``problems`` maps the name of
+        each phase whose values cannot be applied to why (``""`` for the system as a whole);
+        such a phase keeps its ``applied`` target. A phase ``pending`` reverts or restores
+        takes its target in the ``baseline`` edits (none where they have none), and a reverted
+        one loses its typed values. ``clamped`` maps ``(name, field)`` to the
+        value, in ``units``, a typed value was moved to. ``exact`` maps a phase to the values,
+        in eV/atom and J/mol-atom/K, of its boxes converted to ``units`` by a unit switch; a box
+        still showing its converted value asks for that value unrounded.
 
         A phase with a typed value gets a new target: its typed values and its locked ones,
-        FREE_FIELDS in all at most. Where they are fewer, a typed solidus keeps the liquidus, a
-        typed liquidus keeps a solidus the phase was given or else a nonzero entropy, and a
-        typed enthalpy or entropy keeps the other. A locked solidus the phase was not given is
-        not part of the target. An emptied solidus box takes a phase's solidus away again."""
+        FREE_FIELDS in all at most. Where they are fewer, a typed Tmax keeps a nonzero entropy,
+        and a typed enthalpy or entropy keeps the other. A typed value outside
+        TEMPERATURE_LIMITS, ENTHALPY_LIMITS or ENTROPY_LIMITS is moved to the limit."""
         def blank(value):
             return value in (None, "")
+
+        clamped = {}
+
+        def clamp(name, which, value):
+            """The typed ``value`` of field ``which`` in ``units``, as degrees C or eV/atom or
+            J/mol-atom/K, moved inside its limits (None for one that is not a number)."""
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return None
+            scale = 1.0 if which == "tmax" else UNIT_SCALES[units][which]
+            low, high = {"enthalpy": ENTHALPY_LIMITS, "entropy": ENTROPY_LIMITS}.get(
+                which, TEMPERATURE_LIMITS)
+            inside = min(max(value / scale, low), high)
+            if inside != value / scale:
+                clamped[(name, which)] = shown_value(which, inside, units)
+            return inside
 
         def retargeted(row):
             """``(target, problem)``: the target the typed values ask for the phase of ``row``,
@@ -2110,46 +2593,44 @@ def create_gliqtern_app(requests_pathname_prefix):
                 value, shown = boxes.get(which), row["shown"][units][which]
                 if blank(value) or (shown is not None and float(value) == shown):
                     continue
-                values[which], problem = read_value(which, value, units)
-                if problem:
-                    return None, f"{name}: {problem}"
-            cleared = row["solidus_set"] and "solidus" in boxes and blank(boxes["solidus"])
-            if not values and not cleared:
+                held = exact.get(name, {}).get(which)
+                if held is not None and float(value) == shown_value(which, held, units):
+                    values[which] = held
+                    continue
+                value = clamp(name, which, value)
+                if value is not None:
+                    values[which] = value
+            if not values:
                 return None, None
             held = [which for which in FIELDS if which in locked.get(name, ())
                     and which not in values and row[which] is not None]
             if len(values) + len(held) > FREE_FIELDS:
-                names = " and ".join(FIELD_NAMES[which] for which in held)
-                return None, (f"{name}: only {FREE_FIELDS} of its min and max liquidus temp, "
-                              f"enthalpy and entropy can be set at once"
-                              + (f", and its {names} {'is' if len(held) == 1 else 'are'} "
-                                 f"locked" if held else "") + ".")
-            target = {**values, **{which: row[which] for which in held
-                                   if which != "solidus" or row["solidus_set"]}}
-            if cleared:
-                target.pop("solidus", None)
+                names = " and ".join(FIELD_SYMBOLS[which] for which in held)
+                return None, (f"only {FREE_FIELDS} of {', '.join(FIELD_SYMBOLS.values())} can be "
+                              f"set" + (f" ({names} locked)" if held else ""))
+            target = {**values, **{which: row[which] for which in held}}
             if len(target) < FREE_FIELDS:
-                if "solidus" in target:
-                    keep = "liquidus"
-                elif "liquidus" in target:
-                    keep = ("solidus" if row["solidus_set"] and not cleared
-                            else "entropy" if abs(row["entropy"]) > 1e-9 and not cleared
-                            else None)
-                elif "enthalpy" in target:
-                    keep = "entropy"
-                else:
-                    keep = "enthalpy" if "entropy" in target else "liquidus"
+                keep = (("entropy" if abs(row["entropy"]) > 1e-9 else None) if "tmax" in target
+                        else "entropy" if "enthalpy" in target else "enthalpy")
                 if keep is not None and row[keep] is not None:
                     target[keep] = row[keep]
-            if {"solidus", "liquidus"} <= set(target) and not target["solidus"] < target["liquidus"]:
-                return None, f"{name}: its min liquidus temp must lie below its max."
             return target, None
 
         edits = {"added": [{**phase, "target": dict(phase["target"])}
                            for phase in applied["added"]],
                  "targets": {name: dict(target) for name, target in applied["targets"].items()},
                  "removed": list(applied["removed"])}
+        at_baseline = edit_targets(baseline)
         dropped = set(pending["removed"])
+        reverted = set(pending.get("reverted", ()))
+        for name in reverted | set(pending["restored"]):
+            if name in baseline["targets"]:
+                edits["targets"][name] = dict(baseline["targets"][name])
+            else:
+                edits["targets"].pop(name, None)
+            for phase in edits["added"]:
+                if phase["name"] == name and name in at_baseline:
+                    phase["target"] = dict(at_baseline[name])
         edits["removed"] = [n for n in edits["removed"] if n not in pending["restored"]]
         added_names = {phase["name"] for phase in edits["added"]}
         edits["added"] = [p for p in edits["added"] if p["name"] not in dropped]
@@ -2158,6 +2639,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                 edits["removed"].append(name)
                 edits["targets"].pop(name, None)
         taken = {row["name"] for row in rows}
+        problems = {}
         for phase in pending["added"]:
             if phase.get("name") in dropped:
                 continue
@@ -2171,17 +2653,19 @@ def create_gliqtern_app(requests_pathname_prefix):
                 [fractions[el] for el in elements], elements, phase.get("name"), given, units,
                 rows, taken | {p["name"] for p in edits["added"]})
             if problem:
-                return None, problem
+                problems[phase.get("name") or ""] = problem
+                continue
             edits["added"].append(checked)
         if sum(not p["target"].get("force") for p in edits["added"]) > MAX_ADDED_PHASES:
-            return None, f"At most {MAX_ADDED_PHASES} phases can be added to a system."
+            problems[""] = f"At most {MAX_ADDED_PHASES} phases can be added to a system."
         for row in rows:
             name = row["name"]
-            if not row["editable"] or name in dropped:
+            if not row["editable"] or name in dropped or name in reverted:
                 continue
             target, problem = retargeted(row)
             if problem:
-                return None, problem
+                problems[name] = problem
+                continue
             if target is None:
                 continue
             mine = [p for p in edits["added"] if p["name"] == name]
@@ -2189,7 +2673,19 @@ def create_gliqtern_app(requests_pathname_prefix):
                 mine[0]["target"] = target
             else:
                 edits["targets"][name] = target
-        return edits, None
+        return edits, problems, clamped
+
+    def previewed(session, system, applied, edits, rows, units, added=False):
+        """preview_phases of the ``system`` on screen with the session's models, or the landing
+        ones before a tab has a session; ``{}`` where the dry run fails."""
+        cache = session if session is not None else landing_cache
+        try:
+            with cache['preview_lock']:
+                return preview_phases(system.split('-'), applied, edits, rows, units,
+                                      cache['preview_models'], added)
+        except Exception:
+            traceback.print_exc()
+            return {}
 
     # Starts generations, polls them and cancels them. The figures are sent by deliver_plot,
     # once per plot-token value, so a poll never carries a figure.
@@ -2198,7 +2694,8 @@ def create_gliqtern_app(requests_pathname_prefix):
             Output('interval-component', 'disabled'),
             Output('button-disabled', 'data'),
             Output('button-label', 'data'),
-            Output('plot-token', 'data')],
+            Output('plot-token', 'data'),
+            Output('phase-errors', 'data')],
         [Input('submit-val', 'n_clicks'),
             Input('interval-component', 'n_intervals'),
             Input('reset-phases', 'n_clicks')],
@@ -2211,11 +2708,12 @@ def create_gliqtern_app(requests_pathname_prefix):
          State({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'id'),
          State({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'value'),
          State({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'id'),
-         State({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'value')]
+         State({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'value'),
+         State('typed-exact', 'data')]
     )
     def trigger_and_update_plot(n_clicks, n_intervals, n_resets, text_input, session_id, shown,
                                 pending, uploaded, units, field_ids, field_values, lock_ids,
-                                lock_values):
+                                lock_values, exact):
         # Identify what triggered the callback; a page load has no trigger
         ctx = dash.callback_context
         trigger = ctx.triggered[0]['prop_id'] if ctx.triggered else ""
@@ -2224,9 +2722,11 @@ def create_gliqtern_app(requests_pathname_prefix):
         # dropped, the tab shows the landing figures.
         session = sessions.get(session_id)
 
-        def unchanged(message):
-            """Outputs that leave the plots on screen and the Generate button enabled."""
-            return (message, True, False, GENERATE_LABEL, dash.no_update)
+        def unchanged(message, problems=()):
+            """Outputs that leave the plots on screen and the Generate button enabled, with
+            ``message`` in the sidebar and the phases named in ``problems`` marked."""
+            return (message, True, False, GENERATE_LABEL, dash.no_update,
+                    [name for name in problems if name])
 
         def running():
             """The progress of the generation running; its button cancels it."""
@@ -2239,14 +2739,14 @@ def create_gliqtern_app(requests_pathname_prefix):
             else:
                 fraction, label = stage_progress(stage, done, total, now - since)
             return (progress_bar(fraction, label, now - session['started_at']), False, False,
-                    CANCEL_LABEL, dash.no_update)
+                    CANCEL_LABEL, dash.no_update, dash.no_update)
 
         def start(components, edits, locks, order):
             """Generate ``components`` with the phase ``edits`` in a separate thread, watched by
             another."""
             session['generation'] += 1
             now = time.monotonic()
-            session.update(plot_ready=False, error_occurred=False, error_message="",
+            session.update(plot_ready=False, error_occurred=False, problems={},
                            started_at=now, polled_at=now, reported=("start", 1, 1, now),
                            system_running="-".join(components), notice="")
             session['job'] = Generation(
@@ -2255,13 +2755,17 @@ def create_gliqtern_app(requests_pathname_prefix):
             session['job'].start()
             threading.Thread(target=watch, args=(session, session['generation']),
                              daemon=True).start()
-            return running()
+            return (*running()[:-1], [])
 
-        # Reset shows the system on screen without phase edits again.
+        # Reset shows the system on screen at its baseline again: the store's phases, or the
+        # last uploaded list.
         if 'reset-phases' in trigger:
-            if session is None or not session['plot_ready'] or not any(session['edits'].values()):
+            if session is None or not session['plot_ready'] or baseline_state(session)[1]:
                 raise PreventUpdate
-            return ("", True, True, GENERATE_LABEL, restore_default(session))
+            base = baseline_edits(session)
+            if any(base.values()):
+                return start(session['system'].split('-'), base, [], session['order'])
+            return ("", True, True, GENERATE_LABEL, restore_default(session), [])
 
         # The button cancels the generation running. Otherwise it plots the typed system, or
         # the one on screen with the phase edits asked for; a system that cannot be plotted,
@@ -2277,6 +2781,7 @@ def create_gliqtern_app(requests_pathname_prefix):
                 return unchanged(error_message(problem))
             if shown != "-".join(components):
                 session = sessions.get(session_id, create=True)
+                session['baseline'] = None
                 return start(components, no_edits(), [], order)
             applied = session['edits'] if session is not None else no_edits()
             rows = session['rows'] if session is not None else LANDING_ROWS
@@ -2286,30 +2791,33 @@ def create_gliqtern_app(requests_pathname_prefix):
                 if edits == applied:
                     return unchanged("")
                 if not any(edits.values()):
-                    return ("", True, True, GENERATE_LABEL, restore_default(session))
+                    return ("", True, True, GENERATE_LABEL, restore_default(session), [])
                 session = sessions.get(session_id, create=True)
                 return start(components, edits, [], session['order'])
-            typed, locked = {}, {}
-            for item, value in zip(field_ids, field_values):
-                typed.setdefault(item['name'], {})[item['which']] = value
-            for item, value in zip(lock_ids, lock_values):
-                if value:
-                    locked.setdefault(item['name'], set()).add(item['which'])
-            edits, problem = requested_edits(applied, rows, pending or NO_PENDING, typed, locked,
-                                             units)
-            if problem:
-                return unchanged(error_message(problem))
+            typed = boxes_by_phase(field_ids, field_values)
+            locked = {name: {which for which, on in locks.items() if on}
+                      for name, locks in boxes_by_phase(lock_ids, lock_values).items()}
+            edits, problems, _ = requested_edits(applied, rows, pending or NO_PENDING, typed,
+                                                 locked, units, baseline_edits(session),
+                                                 exact or {})
+            if not problems:
+                ahead = previewed(session, shown, applied, edits, rows, units, added=True)
+                problems = {name: phase['problem'] for name, phase in ahead.items()
+                            if phase['problem']}
+            if problems:
+                return unchanged(error_lines(problems), problems)
             if edits == applied:
                 return unchanged("")
             by_name = {row["name"]: row for row in rows}
-            locks = [(name, which, by_name[name][which])
-                     for name, fields in locked.items() for which in ("solidus", "liquidus")
+            asked = edit_targets(edits)
+            locks = [(name, which, asked.get(name, {}).get(which, by_name[name][which]))
+                     for name, fields in locked.items() for which in ("tmax",)
                      if which in fields and by_name.get(name, {}).get(which) is not None]
             session = sessions.get(session_id, create=True)
             return start(components, edits, locks, session['order'])
 
         if session is None:
-            return (IDLE_MESSAGE, True, False, GENERATE_LABEL, LANDING_TOKEN)
+            return (IDLE_MESSAGE, True, False, GENERATE_LABEL, LANDING_TOKEN, [])
 
         if not trigger:
             # A page load (a reload) cancels the generation running and shows the session's
@@ -2319,6 +2827,7 @@ def create_gliqtern_app(requests_pathname_prefix):
             else:
                 session['notice'] = ""
             session['error_occurred'] = False
+            session['baseline'] = None
             if any(session['edits'].values()):
                 restore_default(session)
 
@@ -2328,8 +2837,8 @@ def create_gliqtern_app(requests_pathname_prefix):
         if session['plot_ready']:
             if trigger:
                 return (progress_bar(*generation_progress("done")), True, True, GENERATE_LABEL,
-                        session['generation'])
-            return ("", True, False, GENERATE_LABEL, session['generation'])
+                        session['generation'], dash.no_update)
+            return ("", True, False, GENERATE_LABEL, session['generation'], dash.no_update)
 
         return running()
 
@@ -2344,7 +2853,8 @@ def create_gliqtern_app(requests_pathname_prefix):
             Output('phase-rows', 'data'),
             Output('pending-edits', 'data'),
             Output('uploaded-edits', 'data'),
-            Output('entries-message', 'children', allow_duplicate=True)],
+            Output('entries-message', 'children', allow_duplicate=True),
+            Output('phase-errors', 'data', allow_duplicate=True)],
         Input('plot-token', 'data'),
         State('session-id', 'data'),
         prevent_initial_call=True,
@@ -2353,92 +2863,141 @@ def create_gliqtern_app(requests_pathname_prefix):
         """The plots of generation ``token`` of the tab's session, or the landing plots, with
         the sidebar message, the button re-enabled, the system now on screen and the phase
         editor's rows; an uploaded list and its note are dropped once it is drawn. A failed
-        generation sends its error in red and leaves the plots, the pending edits and an
-        uploaded list as they are."""
+        generation sends its errors in red, one line each, with the phases they name, and
+        leaves the plots, the pending edits and an uploaded list as they are."""
         session = sessions.get(session_id)
         if session is None or token == LANDING_TOKEN:
             return (LANDING_TERNARY, *LANDING_BINARIES, IDLE_MESSAGE, False, LANDING_SHOWN,
-                    {'rows': LANDING_ROWS, 'order': LANDING_ORDER, 'removed': []}, NO_PENDING,
-                    None, "")
+                    {'rows': LANDING_ROWS, 'order': LANDING_ORDER, 'removed': [],
+                     'revertible': [], 'at_baseline': True}, NO_PENDING,
+                    None, "", [])
         if token != session['generation'] or not session['plot_ready']:
             # A newer generation started; it sends its own plots.
             raise PreventUpdate
         if session['error_occurred']:
-            return (*[dash.no_update] * 4, error_message(session['error_message']), False,
-                    *[dash.no_update] * 5)
+            return (*[dash.no_update] * 4, error_lines(session['problems']), False,
+                    *[dash.no_update] * 5, [name for name in session['problems'] if name])
+        revertible, at_baseline = baseline_state(session)
         return (session['ternary_plot'], *session['binary_plots'], session['notice'], False,
                 session['system'],
                 {'rows': session['rows'], 'order': session['order'],
-                 'removed': session['edits']['removed']}, NO_PENDING, None, "")
+                 'removed': session['edits']['removed'], 'revertible': revertible,
+                 'at_baseline': at_baseline}, NO_PENDING, None, "", [])
 
     @app.callback(
         [Output('phase-list', 'children'),
             Output('comp-label-0', 'children'),
             Output('comp-label-1', 'children'),
             Output('comp-label-2', 'children'),
-            Output('reset-phases', 'disabled')],
+            Output('typed-exact', 'data')],
         [Input('phase-rows', 'data'),
             Input('pending-edits', 'data'),
             Input('energy-units', 'value')],
-        [State({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'id'),
+        [State('reset-phases', 'n_clicks'),
+         State('session-id', 'data'),
+         State({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'id'),
          State({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'value'),
          State({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'id'),
-         State({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'value')],
+         State({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'value'),
+         State('phase-preview', 'data'),
+         State('phase-errors', 'data'),
+         State('typed-exact', 'data')],
     )
-    def render_phase_list(shown, pending, units, field_ids, field_values, lock_ids,
-                          lock_values):
+    def render_phase_list(shown, pending, units, reset, session_id, field_ids, field_values,
+                          lock_ids, lock_values, preview, errors, exact):
         """The phase list, with the energies in ``units``: the phases added since the plots
         were drawn, then the phases on screen in legend order, then the removed ones, which can
         be kept again. Typed values survive a pending edit and a change of units, which
-        converts them, and are dropped when new plots arrive. A padlock stays as the user left
-        it; one not yet on screen is closed on the enthalpy of a DFT phase."""
+        converts them, and are dropped when new plots arrive or Reset is pressed. A padlock
+        stays as the user left it; one not yet on screen is closed on the enthalpy of a DFT
+        phase. A phase marked for reverting shows its values at the baseline (see
+        baseline_values), and a phase the plots were drawn without that is being restored its
+        enthalpy and entropy there; reverting one
+        with no drawn edit (the pending ``cleared``) drops its typed values and padlocks.
+        Until new plots arrive, a phase keeps the preview and the refusal mark it shows, and the
+        typed-exact store the unrounded values of the boxes a unit switch converted."""
         if not shown:
             raise PreventUpdate
-        pending = pending or NO_PENDING
+        pending = {**NO_PENDING, **(pending or {})}
         triggers = [item['prop_id'] for item in dash.callback_context.triggered]
-        fresh = any(prop.startswith('phase-rows') for prop in triggers)
-        typed = {}
-        if not fresh:
-            for item, value in zip(field_ids, field_values):
-                typed.setdefault(item['name'], {})[item['which']] = value
+        fresh = (any(prop.startswith('phase-rows') for prop in triggers)
+                 or bool(reset) and pending.get('reset') == reset)
+        typed = {} if fresh else boxes_by_phase(field_ids, field_values)
+        exact = {} if fresh else {name: dict(held) for name, held in (exact or {}).items()}
         if typed and any(prop.startswith('energy-units') for prop in triggers):
             before = UNITS[1 - UNITS.index(units)]
             was = {row["name"]: row["shown"][before] for row in shown['rows']}
             for name, boxes in typed.items():
                 for which in ("enthalpy", "entropy"):
                     value = boxes.get(which)
+                    held = exact.get(name, {}).pop(which, None)
                     if value in (None, ""):
                         continue
                     if float(value) == was.get(name, {}).get(which):
                         del boxes[which]
+                        continue
+                    if held is not None and float(value) == shown_value(which, held, before):
+                        value, problem = held, None
                     else:
                         value, problem = read_value(which, value, before)
-                        boxes[which] = None if problem else shown_value(which, value, units)
+                    boxes[which] = None if problem else shown_value(which, value, units)
+                    if not problem:
+                        exact.setdefault(name, {})[which] = value
+        cleared = set(pending["reverted"])
+        if (pending.get('cleared') and not fresh
+                and any(prop.startswith('pending-edits') for prop in triggers)):
+            cleared.add(pending['cleared'][0])
+        for name in cleared:
+            typed.pop(name, None)
+            exact.pop(name, None)
         padlocks = {(item['name'], item['which']): bool(value)
-                    for item, value in zip(lock_ids, lock_values)}
+                    for item, value in zip(lock_ids, lock_values) if item['name'] not in cleared}
+        session = sessions.get(session_id) if session_id else None
+        known = baseline_values(session)
+
+        def known_row(name, temperatures=True):
+            """The row of a phase at the baseline, its Tmax unknown unless ``temperatures``."""
+            values = {which: (known.get(name) or {}).get(which) for which in FIELDS}
+            top = (known.get(name) or {}).get("top") if temperatures else None
+            if not temperatures:
+                values["tmax"] = None
+            return {"name": name, "label": abbreviate_phase_name(name, names), "fractions": [],
+                    **values, "top": top, "shown": shown_values(values), "editable": False,
+                    "dft": False, "kind": "default"}
 
         def locked(row):
             return {which for which in FIELDS
                     if padlocks.get((row["name"], which), which == "enthalpy" and row["dft"])}
 
-        def unlisted(name, target=None):
+        def unlisted(name, target=None, composition=None):
             """The row of a phase the plots on screen do not show."""
             values = {which: (target or {}).get(which) for which in FIELDS}
-            return {"name": name, "fractions": [], **values, "shown": shown_values(values),
-                    "solidus_set": False, "editable": target is not None, "dft": False,
+            return {"name": name, "label": abbreviate_phase_name(name, names), "fractions": [],
+                    "composition": composition,
+                    **values, "top": None, "shown": shown_values(values),
+                    "editable": target is not None, "dft": False,
                     "kind": "default" if target is None else "added"}
 
         rows = shown['rows']
-        new = [unlisted(phase["name"], phase["target"]) for phase in pending["added"]]
-        gone = [unlisted(name) for name in shown['removed']]
+        names = [row["name"] for row in rows] + list(shown['removed'])
+        new = [unlisted(phase["name"], phase["target"], phase["fractions"])
+               for phase in pending["added"]]
+        gone = [known_row(name, temperatures=False) for name in shown['removed']]
         children = [phase_list_row(row, units, typed.get(row["name"]), drawn=False)
                     for row in new]
+        ahead = {} if fresh else {name: entry for name, entry in (preview or {}).items()
+                                  if name in typed}
+        bad = set() if fresh else set(errors or ())
         children += [phase_list_row(row, units, typed.get(row["name"]), locked(row),
-                                    removed=row["name"] in pending["removed"]) for row in rows]
+                                    removed=row["name"] in pending["removed"],
+                                    reverted=known_row(row["name"])
+                                    if row["name"] in pending["reverted"] else None,
+                                    revertible=row["name"] in shown.get('revertible', ()),
+                                    ahead=ahead.get(row["name"]), bad=row["name"] in bad)
+                     for row in rows]
         children += [phase_list_row(row, units, removed=row["name"] not in pending["restored"],
                                     restore=True) for row in gone]
-        edited = bool(shown['removed']) or any(row["kind"] != "default" for row in rows)
-        return (children, *shown['order'], not edited)
+        return (children, *shown['order'], exact)
 
     @app.callback(
         [Output('pending-edits', 'data', allow_duplicate=True),
@@ -2454,16 +3013,14 @@ def create_gliqtern_app(requests_pathname_prefix):
          State('comp-2', 'value'),
          State('new-name', 'value'),
          *[State(f'new-{which}', 'value') for which in ADD_FIELDS],
-         State('new-auto', 'data'),
          State('energy-units', 'value'),
          State('phase-rows', 'data'),
          State('pending-edits', 'data')],
         prevent_initial_call=True,
     )
-    def add_phase(n_clicks, a, b, c, name, solidus, liquidus, enthalpy, auto, units, shown,
-                  pending):
+    def add_phase(n_clicks, a, b, c, name, tmax, enthalpy, units, shown, pending):
         """Add the phase the form describes to the pending edits and clear the form, or say
-        why it cannot be added. The value fill_added_value filled in is not read."""
+        why it cannot be added."""
         if not n_clicks or not shown:
             raise PreventUpdate
         pending = pending or NO_PENDING
@@ -2473,14 +3030,15 @@ def create_gliqtern_app(requests_pathname_prefix):
         if added >= MAX_ADDED_PHASES:
             problem = f"At most {MAX_ADDED_PHASES} phases can be added to a system."
         else:
-            given = dict(zip(ADD_FIELDS, (solidus, liquidus, enthalpy)))
-            given.pop((auto or {}).get('field'), None)
+            given = dict(zip(ADD_FIELDS, (tmax, enthalpy)))
             phase, problem = read_added_phase([a, b, c], shown['order'], name, given, units,
                                               rows, taken)
         if problem:
-            return (dash.no_update, error_message(problem), *[dash.no_update] * 7)
-        return ({**pending, "added": [phase, *pending["added"]]}, "", None, None, None, "",
-                None, None, None)
+            return (dash.no_update, error_message(problem),
+                    *[dash.no_update] * (4 + len(ADD_FIELDS)))
+        return ({**{key: pending[key] for key in NO_PENDING},
+                 "added": [phase, *pending["added"]]}, "", None, None, None, "",
+                *[None] * len(ADD_FIELDS))
 
     @app.callback(
         [Output('head-enthalpy', 'children'),
@@ -2490,76 +3048,22 @@ def create_gliqtern_app(requests_pathname_prefix):
     )
     def show_units(units):
         """Head the energy columns with ``units``."""
-        return tuple(field_head(which, units) for which in ("enthalpy", "entropy"))
-
-    def solved_enthalpy(model, fractions, solidus, liquidus):
-        """``(enthalpy in eV/atom, problem)``: the formation enthalpy ``model`` gives a phase at
-        element ``fractions`` that joins the hull at ``solidus`` and leaves it at ``liquidus``
-        (degrees C), or why there is none."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            record = model.impute_phase(fractions, liquidus + 273.15, solidus=solidus + 273.15,
-                                        apply=False, screen=False, write_cache=False)
-        if not record.accepted or record.inverted_enthalpy is None:
-            return None, refusal(record, {}, UNITS[0])
-        return record.inverted_enthalpy / EV_ATOM_TO_J_MOL, None
+        return tuple(head_children(which, units) for which in ("enthalpy", "entropy"))
 
     @app.callback(
-        [*[Output(f'new-{which}', 'value', allow_duplicate=True) for which in ADD_FIELDS],
-            *[Output(f'new-{which}', 'disabled') for which in ADD_FIELDS],
-            *[Output(f'new-{which}', 'placeholder') for which in ADD_FIELDS],
-            Output('new-auto', 'data'),
-            Output('add-message', 'children', allow_duplicate=True)],
-        [*[Input(f'new-{which}', 'value') for which in ADD_FIELDS],
-            Input('comp-0', 'value'),
-            Input('comp-1', 'value'),
-            Input('comp-2', 'value'),
-            Input('energy-units', 'value'),
-            Input('phase-rows', 'data')],
-        [State('new-auto', 'data'),
-         State('session-id', 'data')],
+        [Output('new-enthalpy', 'value', allow_duplicate=True),
+            Output('new-enthalpy', 'placeholder')],
+        Input('energy-units', 'value'),
+        State('new-enthalpy', 'value'),
         prevent_initial_call=True,
     )
-    def fill_added_value(solidus, liquidus, enthalpy, a, b, c, units, shown, auto, session_id):
-        """With two of the add form's ADD_FIELDS typed, grey out the third and fill it: the
-        enthalpy from a solidus and a liquidus, a dash for a temperature, which only the drawn
-        surface gives. A typed enthalpy follows a change of ``units``."""
-        values = dict(zip(ADD_FIELDS, (solidus, liquidus, enthalpy)))
-        field, before = (auto or {}).get('field'), (auto or {}).get('units', units)
-        if before != units and field != "enthalpy" and values["enthalpy"] not in (None, ""):
-            value, problem = read_value("enthalpy", values["enthalpy"], before)
-            values["enthalpy"] = None if problem else shown_value("enthalpy", value, units)
-        typed = [which for which in ADD_FIELDS
-                 if which != field and values[which] not in (None, "")]
-        note = ""
-        if len(typed) == FREE_FIELDS:
-            field = next(which for which in ADD_FIELDS if which not in typed)
-            values[field] = None
-            session = sessions.get(session_id)
-            model = session['model'] if session is not None else LANDING_MODEL
-            fractions, problem = read_fractions([a, b, c], (shown or {}).get('order', []))
-            if field == "enthalpy" and model is not None and not problem:
-                target, problem = read_target({w: values[w] for w in typed}, units)
-                if not problem:
-                    try:
-                        enthalpy, problem = solved_enthalpy(model, fractions,
-                                                            target["solidus"],
-                                                            target["liquidus"])
-                    except ValueError as error:
-                        problem = str(error)
-                if problem:
-                    note = info_message(f"No ΔH fits: {problem}.")
-                else:
-                    values[field] = shown_value("enthalpy", enthalpy, units)
-        else:
-            if field is not None:
-                values[field] = None
-            field = None
-        placeholders = [("–" if which == field and values[which] is None
-                         else field_head(which, units)) for which in ADD_FIELDS]
-        return (*[values[which] for which in ADD_FIELDS],
-                *[which == field for which in ADD_FIELDS], *placeholders,
-                {'field': field, 'units': units}, note)
+    def convert_added_enthalpy(units, value):
+        """Show the add form's enthalpy in ``units``: a typed one converted, the placeholder
+        naming the units."""
+        if value not in (None, ""):
+            value, problem = read_value("enthalpy", value, UNITS[1 - UNITS.index(units)])
+            value = None if problem else shown_value("enthalpy", value, units)
+        return value, ADD_HINTS[units]["enthalpy"]
 
     @app.callback(
         Output('html-file', 'data'),
@@ -2598,13 +3102,14 @@ def create_gliqtern_app(requests_pathname_prefix):
             Output('entries-message', 'children'),
             Output('upload-entries', 'contents')],
         Input('upload-entries', 'contents'),
-        State('shown-plot', 'data'),
+        [State('shown-plot', 'data'),
+         State('session-id', 'data')],
         prevent_initial_call=True,
     )
-    def read_upload(contents, shown):
+    def read_upload(contents, shown, session_id):
         """Read an uploaded list of entries for the system on screen: the edits that give the
         store's phases the list's, kept until the next update draws them, and what the user
-        should know about them."""
+        should know about them. The list becomes the session's baseline."""
         if not contents:
             raise PreventUpdate
         if not shown:
@@ -2616,6 +3121,8 @@ def create_gliqtern_app(requests_pathname_prefix):
             components = shown.split("-")
             model = ternary_model(components, *lookup_binary_parameters(components))
             edits, notes = uploaded_edits(model, entries)
+            session = sessions.get(session_id, create=True)
+            session['baseline'] = {'system': shown, 'edits': edits, 'rows': None}
         except Exception as error:
             return (None, error_message(f"The file is not a list of pymatgen entries: {error}"),
                     None)
@@ -2635,7 +3142,7 @@ def create_gliqtern_app(requests_pathname_prefix):
         clicked = dash.callback_context.triggered_id
         if not clicked or not any(n_clicks) or not dash.callback_context.triggered[0]['value']:
             raise PreventUpdate
-        pending = {key: list(value) for key, value in (pending or NO_PENDING).items()}
+        pending = {key: list((pending or NO_PENDING).get(key, ())) for key in NO_PENDING}
         name = clicked['name']
         if name in {phase["name"] for phase in pending["added"]}:
             pending["added"] = [p for p in pending["added"] if p["name"] != name]
@@ -2648,6 +3155,28 @@ def create_gliqtern_app(requests_pathname_prefix):
         return pending
 
     @app.callback(
+        Output('pending-edits', 'data', allow_duplicate=True),
+        Input({'type': 'ph-revert', 'name': ALL}, 'n_clicks'),
+        [State('phase-rows', 'data'),
+         State('pending-edits', 'data')],
+        prevent_initial_call=True,
+    )
+    def revert_phase(n_clicks, shown, pending):
+        """A row's revert button: mark a phase with drawn edits to lose them at the next update,
+        or take that back; any press drops the phase's typed values and padlocks."""
+        clicked = dash.callback_context.triggered_id
+        if not clicked or not any(n_clicks) or not dash.callback_context.triggered[0]['value']:
+            raise PreventUpdate
+        pending = {key: list((pending or NO_PENDING).get(key, ())) for key in NO_PENDING}
+        name = clicked['name']
+        kind = {row["name"]: row["kind"] for row in (shown or {}).get('rows', [])}.get(name)
+        if name in pending["reverted"]:
+            pending["reverted"].remove(name)
+        elif kind == "changed":
+            pending["reverted"].append(name)
+        return {**pending, 'cleared': [name, dash.callback_context.triggered[0]['value']]}
+
+    @app.callback(
         [Output('pending-edits', 'data', allow_duplicate=True),
             Output('uploaded-edits', 'data', allow_duplicate=True),
             Output('entries-message', 'children', allow_duplicate=True)],
@@ -2655,8 +3184,9 @@ def create_gliqtern_app(requests_pathname_prefix):
         prevent_initial_call=True,
     )
     def clear_pending(n_clicks):
-        """Reset also drops the edits not yet drawn and an uploaded list."""
-        return NO_PENDING, None, ""
+        """Reset also drops the edits not yet drawn and an uploaded list, and marks the cleared
+        edits with the press, which drops the typed values."""
+        return {**NO_PENDING, 'reset': n_clicks}, None, ""
 
     @app.callback(
         Output('comp-preview', 'children'),
@@ -2698,10 +3228,13 @@ def create_gliqtern_app(requests_pathname_prefix):
     )
 
     # A box is bold where its value is not the phase's own, whether drawn or only typed, and
-    # disabled while its padlock is closed or FREE_FIELDS of the phase's padlocks are; an open
-    # padlock is hidden then.
+    # disabled while its padlock is closed or FREE_FIELDS of the phase's fields are typed or
+    # locked; its padlock is hidden then. A box the preview computes is marked computed, and
+    # every box of a phase the last update refused bad. A phase's revert button shows while it
+    # has drawn edits, is marked for reverting, or has a typed value.
+    # Keep set_props: pattern outputs here make the renderer walk every box on each key press.
     app.clientside_callback(
-        f"""function(rows, values, locks, units) {{
+        f"""function(rows, values, locks, preview, revertIds, errors, units, pending) {{
             const FREE = {FREE_FIELDS};
             const byName = {{}};
             ((rows || {{}}).rows || []).forEach(row => {{ byName[row.name] = row; }});
@@ -2712,29 +3245,277 @@ def create_gliqtern_app(requests_pathname_prefix):
                     (closed[item.id.name] = closed[item.id.name] || new Set()).add(item.id.which);
                 }}
             }});
-            const of = name => closed[name] || new Set();
+            const held = name => closed[name] || new Set();
+            const isTyped = item => glTyped(byName[item.id.name], item, units);
+            const fixed = {{}};
+            (inputs[1] || []).forEach(item => {{
+                if (isTyped(item)) {{
+                    (fixed[item.id.name] = fixed[item.id.name] || new Set()).add(item.id.which);
+                }}
+            }});
+            const set = name => new Set([...held(name), ...(fixed[name] || [])]);
+            const full = (name, which) => set(name).size >= FREE && !set(name).has(which);
             const boxes = (inputs[1] || []).map(item => {{
-                const row = byName[item.id.name], which = item.id.which, value = item.value;
-                const blank = value === null || value === undefined || value === '';
-                const typed = !blank && (!row || row.shown[units][which] === null
-                                         || Number(value) !== row.shown[units][which]);
-                const changed = typed || (!!row && (row.changed || []).includes(which));
-                return [changed ? 'gl-ph-input gl-ph-changed' : 'gl-ph-input',
-                        of(item.id.name).has(which) || of(item.id.name).size >= FREE];
+                const row = byName[item.id.name], which = item.id.which;
+                const changed = isTyped(item) || (!!row && (row.changed || []).includes(which));
+                const ahead = (preview || {{}})[item.id.name] || {{}};
+                const solved = which in (ahead.values || {{}});
+                const marks = (solved ? ' gl-ph-computed' : '')
+                    + ((errors || []).includes(item.id.name) ? ' gl-ph-bad' : '');
+                return [(changed && !solved ? 'gl-ph-input gl-ph-changed' : 'gl-ph-input') + marks,
+                        held(item.id.name).has(which) || full(item.id.name, which)];
             }});
             const padlocks = (inputs[2] || []).map(item =>
-                (!(item.value || []).length && of(item.id.name).size >= FREE)
+                !(item.value || []).length && full(item.id.name, item.id.which)
                     ? 'gl-ph-lock gl-ph-off' : 'gl-ph-lock');
-            return [boxes.map(box => box[0]), boxes.map(box => box[1]), padlocks];
+            const reverting = new Set((pending || {{}}).reverted || []);
+            const reverts = (inputs[4] || []).map(item => {{
+                const name = item.id.name;
+                if (reverting.has(name)) return 'gl-icon-btn gl-restore gl-on';
+                return ((rows || {{}}).revertible || []).includes(name)
+                        || (fixed[name] || new Set()).size
+                    ? 'gl-icon-btn gl-restore' : 'gl-icon-btn gl-restore gl-ph-off';
+            }});
+            const had = window.dash_clientside.callback_context.states_list;
+            const put = (items, prop, wanted, now) => (items || []).forEach((item, i) => {{
+                if (now[i].value !== wanted[i] && (now[i].value || wanted[i])) {{
+                    window.dash_clientside.set_props(item.id, {{[prop]: wanted[i]}});
+                }}
+            }});
+            put(inputs[1], 'className', boxes.map(box => box[0]), had[2]);
+            put(inputs[1], 'disabled', boxes.map(box => box[1]), had[3]);
+            put(inputs[2], 'className', padlocks, had[4]);
+            put(inputs[4], 'className', reverts, had[5]);
+            return window.dash_clientside.no_update;
         }}""",
-        [Output({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'className'),
-            Output({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'disabled'),
-            Output({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'className')],
+        Output('box-sink', 'data'),
         [Input('phase-rows', 'data'),
             Input({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'value'),
-            Input({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'value')],
+            Input({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'value'),
+            Input('phase-preview', 'data'),
+            Input({'type': 'ph-revert', 'name': ALL}, 'id'),
+            Input('phase-errors', 'data')],
+        [State('energy-units', 'value'),
+         State('pending-edits', 'data'),
+         State({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'className'),
+         State({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'disabled'),
+         State({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'className'),
+         State({'type': 'ph-revert', 'name': ALL}, 'className')],
+    )
+
+    # Counts the letters of the add form's name against NAME_LIMIT.
+    app.clientside_callback(
+        f"""function(name) {{ return (name || '').length + '/{NAME_LIMIT}'; }}""",
+        Output('name-count', 'children'),
+        Input('new-name', 'value'),
+    )
+
+    # Addresses the Report an issue links, their subject and body naming the system on screen.
+    app.clientside_callback(
+        f"""function(system) {{
+            const subject = 'GLiquid ternary plotter issue' + (system ? ' (' + system + ')' : '');
+            const body = 'System: ' + (system || '-')
+                + '\\n\\nWhat I did:\\n\\nWhat I expected:\\n\\nWhat happened:\\n';
+            const to = '{ISSUE_EMAIL}', su = encodeURIComponent(subject);
+            const text = encodeURIComponent(body);
+            return ['https://mail.google.com/mail/?view=cm&fs=1&to=' + to + '&su=' + su
+                        + '&body=' + text,
+                    'https://outlook.office.com/mail/deeplink/compose?to=' + to + '&subject=' + su
+                        + '&body=' + text,
+                    'mailto:' + to + '?subject=' + su + '&body=' + text];
+        }}""",
+        [Output('report-gmail', 'href'),
+            Output('report-outlook', 'href'),
+            Output('report-mailto', 'href')],
+        Input('shown-plot', 'data'),
+    )
+
+    # Opens and closes the Report an issue panel.
+    app.clientside_callback(
+        """function(opened, closed, hidden) {
+            const trigger = (window.dash_clientside.callback_context.triggered[0] || {}).prop_id;
+            return trigger === 'report-close.n_clicks' ? true : !hidden;
+        }""",
+        Output('report-panel', 'hidden'),
+        Input('report-issue', 'n_clicks'),
+        Input('report-close', 'n_clicks'),
+        State('report-panel', 'hidden'),
+        prevent_initial_call=True,
+    )
+
+    # Copies ISSUE_EMAIL; the button says so for two seconds.
+    app.clientside_callback(
+        f"""function(clicks) {{
+            const done = () => {{
+                window.dash_clientside.set_props('report-copy', {{children: 'Copied'}});
+                setTimeout(() => window.dash_clientside.set_props(
+                    'report-copy', {{children: 'Copy address'}}), 2000);
+            }};
+            if (navigator.clipboard && navigator.clipboard.writeText) {{
+                navigator.clipboard.writeText({json.dumps(ISSUE_EMAIL)}).then(done, () => {{}});
+            }}
+            return window.dash_clientside.no_update;
+        }}""",
+        Output('report-copy', 'title'),
+        Input('report-copy', 'n_clicks'),
+        prevent_initial_call=True,
+    )
+
+    # A phase the last update refused loses its mark once one of its boxes changes.
+    app.clientside_callback(
+        """function(values, errors) {
+            const none = window.dash_clientside.no_update;
+            if (!errors || !errors.length) return none;
+            const changed = new Set(window.dash_clientside.callback_context.triggered.map(item => {
+                try {
+                    return JSON.parse(item.prop_id.slice(0, item.prop_id.lastIndexOf('.'))).name;
+                } catch (error) {
+                    return null;
+                }
+            }));
+            const left = errors.filter(name => !changed.has(name));
+            return left.length === errors.length ? none : left;
+        }""",
+        Output('phase-errors', 'data', allow_duplicate=True),
+        Input({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'value'),
+        State('phase-errors', 'data'),
+        prevent_initial_call=True,
+    )
+
+    # Reset is usable while the system on screen has a drawn phase edit, a pending addition,
+    # removal or restoral, an uploaded list, or a typed value that is not the phase's own.
+    app.clientside_callback(
+        """function(shown, pending, uploaded, values, units) {
+            const rows = (shown || {}).rows || [];
+            let edited = (shown || {}).at_baseline === false || !!uploaded
+                || (!!pending && ['added', 'removed', 'restored', 'reverted'].some(
+                    key => (pending[key] || []).length > 0));
+            const byName = {};
+            rows.forEach(row => { byName[row.name] = row; });
+            const inputs = window.dash_clientside.callback_context.inputs_list;
+            (inputs[3] || []).forEach(item => {
+                const row = byName[item.id.name];
+                if (row && glTyped(row, item, units)) edited = true;
+            });
+            return !edited;
+        }""",
+        Output('reset-phases', 'disabled'),
+        [Input('phase-rows', 'data'),
+            Input('pending-edits', 'data'),
+            Input('uploaded-edits', 'data'),
+            Input({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'value')],
         State('energy-units', 'value'),
     )
+
+    # While a drawn phase has typed values not yet drawn, its boxes show what an update would
+    # give it: the values its target leaves free, computed by a dry run, as a blank box with the
+    # value as its placeholder ("--" where the update would refuse the phase), and under them
+    # what it would turn into. A box left with a value requested_edits moves gets the moved
+    # value, and a Tmax box refused for lying below the liquid gets the lowest Tmax that works
+    # (the preview's floor); a box left blank that its phase's typed values do not compute
+    # gets its drawn value back. An answer is dropped once the tab has asked for a later one.
+    @app.callback(
+        [Output('phase-preview', 'data'),
+            Output({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'value'),
+            Output({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'placeholder'),
+            Output({'type': 'ph-into', 'name': ALL}, 'children'),
+            Output({'type': 'ph-into', 'name': ALL}, 'title'),
+            Output({'type': 'ph-into', 'name': ALL}, 'className')],
+        [Input({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'value'),
+            Input({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'value'),
+            Input({'type': 'ph-field', 'name': ALL, 'which': ALL}, 'n_blur')],
+        [State('session-id', 'data'),
+         State('shown-plot', 'data'),
+         State('phase-rows', 'data'),
+         State('pending-edits', 'data'),
+         State('energy-units', 'value'),
+         State('phase-preview', 'data'),
+         State({'type': 'ph-lock', 'name': ALL, 'which': ALL}, 'id'),
+         State('typed-exact', 'data')],
+    )
+    def show_preview(values, lock_values, _blurs, session_id, system, shown, pending, units,
+                     before, lock_ids, exact):
+        ids = [item['id'] for item in dash.callback_context.inputs_list[0]]
+        tag_ids = [item['id'] for item in dash.callback_context.outputs_list[3]]
+        triggers = [t['prop_id'] for t in dash.callback_context.triggered]
+        left_ids = [json.loads(prop.rsplit('.', 1)[0]) for prop in triggers
+                    if prop.endswith('.n_blur')]
+        keep, keep_tags = [dash.no_update] * len(ids), [dash.no_update] * len(tag_ids)
+        rows = (shown or {}).get('rows') or []
+        if not rows or not system:
+            return {}, keep, keep, keep_tags, keep_tags, keep_tags
+        session = sessions.get(session_id) if session_id else None
+        applied = (session['edits'] if session is not None and session.get('system') == system
+                   else no_edits())
+        typed = boxes_by_phase(ids, values)
+        locked = {name: {which for which, on in locks.items() if on}
+                  for name, locks in boxes_by_phase(lock_ids, lock_values).items()}
+        reverted = list((pending or NO_PENDING).get('reverted', ()))
+        removing = {**NO_PENDING, 'removed': list((pending or NO_PENDING)['removed']),
+                    'reverted': reverted}
+        base = baseline_edits(session) if session is not None else no_edits()
+        left = {(item['name'], item['which']) for item in left_ids}
+        before = before or {}
+        exact = exact or {}
+        edits, _, clamped = requested_edits(applied, rows, removing, typed, locked, units, base,
+                                            exact)
+        by_name = {row['name']: row for row in rows}
+        emptied = {(item['name'], item['which']) for item, value in zip(ids, values)
+                   if value in (None, '') and item['name'] in by_name} & left
+        asked = {(name, 'tmax') for name, boxes in typed.items()
+                 if name in by_name and boxes.get('tmax') not in (None, '')
+                 and boxes['tmax'] != by_name[name]['shown'][units]['tmax']}
+        if triggers and len(left_ids) == len(triggers) and not left & (
+                set(clamped) | asked | emptied):
+            raise PreventUpdate
+        if len(preview_tickets) > MAX_SESSIONS:
+            preview_tickets.clear()
+        ticket = preview_tickets[session_id] = preview_tickets.get(session_id, 0) + 1
+        preview = previewed(session, system, applied, edits, rows, units)
+        moved = {}
+        for name, which in left:
+            floor = preview.get(name, {}).get('floor') if which == 'tmax' else None
+            if floor is not None or (name, which) in clamped:
+                moved[(name, which)] = floor if floor is not None else clamped[(name, which)]
+                typed.setdefault(name, {})[which] = moved[(name, which)]
+        if moved:
+            edits = requested_edits(applied, rows, removing, typed, locked, units, base,
+                                    exact)[0]
+            preview = previewed(session, system, applied, edits, rows, units)
+        if preview_tickets.get(session_id) != ticket:
+            raise PreventUpdate
+        blanked = emptied | {(name, which) for name, ahead in before.items()
+                             for which in ahead['values']}
+        boxes, placeholders = [], []
+        for item, value in zip(ids, values):
+            name, which = item['name'], item['which']
+            computed = preview.get(name, {}).get('values', {})
+            row = by_name.get(name)
+            if (name, which) in moved:
+                boxes.append(moved[(name, which)])
+                placeholders.append(dash.no_update)
+            elif which in computed:
+                boxes.append(None if value not in (None, '') else dash.no_update)
+                placeholders.append(value_text(shown_value(which, computed[which], units)))
+            elif (name, which) in blanked and value in (None, '') and row is not None:
+                boxes.append(row['shown'][units][which])
+                placeholders.append("--" if row['shown'][units][which] is None else None)
+            else:
+                boxes.append(dash.no_update)
+                placeholders.append(dash.no_update)
+        tags = []
+        for item in tag_ids:
+            name, row = item['name'], by_name.get(item['name'])
+            plain = re.sub(r"</?sub>", "", (row or {}).get("label", name))
+            if name in preview:
+                tags.append(into_props(plain, preview[name]['top'], computed=True))
+            elif row is not None and name in before and name not in reverted:
+                tags.append(into_props(plain, row.get("top")))
+            else:
+                tags.append((dash.no_update,) * 3)
+        return ({name: {'values': ahead['values'], 'floor': ahead['floor'], 'top': ahead['top']}
+                 for name, ahead in preview.items()}, boxes, placeholders,
+                [tag[0] for tag in tags], [tag[1] for tag in tags], [tag[2] for tag in tags])
 
     # Draws the Generate button: Cancel while a plot generates, disabled while its plots are
     # sent, Update once the system on screen has a phase edit or an uploaded list not yet
@@ -2747,23 +3528,15 @@ def create_gliqtern_app(requests_pathname_prefix):
             if (sending) return [GENERATE, true, BUTTON];
             const parts = (typed || '').split('-').map(s => s.trim()).filter(Boolean).sort();
             if (parts.length && parts.join('-') !== shown) return [GENERATE, false, BUTTON];
-            let edited = !!pending && ['added', 'removed', 'restored'].some(
+            let edited = !!pending && ['added', 'removed', 'restored', 'reverted'].some(
                 key => (pending[key] || []).length > 0);
             if (uploaded && uploaded.system === shown) edited = true;
             const byName = {{}};
             ((rows || {{}}).rows || []).forEach(row => {{ byName[row.name] = row; }});
             const inputs = window.dash_clientside.callback_context.inputs_list;
             (inputs[6] || []).forEach(item => {{
-                const row = byName[item.id.name], which = item.id.which, value = item.value;
-                if (!row) return;
-                if (value === null || value === undefined || value === '') {{
-                    if (which === 'solidus' && row.solidus_set) edited = true;
-                    return;
-                }}
-                if (row.shown[units][which] === null
-                        || Number(value) !== row.shown[units][which]) {{
-                    edited = true;
-                }}
+                const row = byName[item.id.name];
+                if (row && glTyped(row, item, units)) edited = true;
             }});
             return edited ? [{json.dumps(UPDATE_LABEL)}, false, BUTTON]
                           : [GENERATE, true, BUTTON + ' gl-idle'];
